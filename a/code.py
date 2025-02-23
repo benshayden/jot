@@ -70,6 +70,7 @@ def switch(ARGS, _dir='switches'):
 def command(ARGS):
 	switch(ARGS, _dir='commands')
 
+
 SERIAL_BLOCK_CALLBACK = None
 SERIAL_BLOCK = ''
 def read_block(callback):
@@ -249,7 +250,7 @@ def runloops():
 	for name in bad:
 		removeloop(name)
 
-addloop('loop', lambda: command('loop'))
+addloop('loop', lambda: command(['loop']))
 
 neopixel = neopixel.NeoPixel(board.NEOPIXEL, 1)
 
@@ -261,7 +262,7 @@ JOYSTICK0 = JoyStick(A0, A1)
 JOYSTICK1 = JoyStick(A2, A3)
 
 KEYMATRIX = keypad.KeyMatrix(
-	columns_to_anodes=True,
+  columns_to_anodes=True,
 	column_pins=(board.D5, board.D6, board.D7, board.D8, board.D9, board.D10),
 	row_pins=(board.D2, board.D3, board.D4, board.SCK, board.MISO, board.MOSI),
 	debounce_threshold=2,
@@ -302,6 +303,5 @@ while True:
 				SERIAL_BLOCK = ''
 				SERIAL_BLOCK_CALLBACK = None
 		else:
-			# todo buffer, split lines
 			command(serial_bytes.strip().split())
 	runloops()
