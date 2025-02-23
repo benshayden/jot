@@ -2,6 +2,7 @@ import board
 import gc
 import keypad
 import math
+import microcontroller
 import neopixel
 import os
 import supervisor
@@ -21,7 +22,7 @@ class ConsumerControlWrapper(ConsumerControl):
 	def release(self, *unused):
 		super().release()
 
-def por(device, event, code):
+def por(device, code):
 	# press or release
 	if event.pressed:
 		device.press(code)
@@ -34,34 +35,40 @@ def get_layer(name):
 		return LAYER_CACHE[name]
 	filename = '/layers/' + name + '.txt'
 	try:
-		LAYER_CACHE[name] = open(filename).read().split('\n')
+		LAYER_CACHE[name] = [tuple(line.split(' ')) for line in open(filename).read().split('\n')]
 		return LAYER_CACHE[name]
 	except Exception as e:
 		print('exception reading ' + filename)
 		print(e)
 
 KEYMAP = []
+LAYER_NAME = 'default'
 def set_layer(name):
+	global LAYER_NAME
+	LAYER_NAME = name
 	KEYMAP[:] = get_layer(name)
 
 SCRIPT_CACHE = {}
-def run(name):
-	if not name:
+def switch(ARGS, _dir='switches'):
+	globals()['ARGS'] = ARGS
+	if not ARGS or not ARGS[0]:
 		return
-	if name not in SCRIPT_CACHE:
-		filename = '/scripts/' + name + '.py'
+	filename = '/' + _dir + '/' + ARGS[0] + '.py'
+	if filename not in SCRIPT_CACHE:
 		try:
-			SCRIPT_CACHE[name] = compile(open(filename).read(), filename, 'exec')
+			SCRIPT_CACHE[filename] = compile(open(filename).read(), filename, 'exec')
 		except Exception as e:
 			print('exception loading ' + filename)
 			print(e)
-	if name not in SCRIPT_CACHE:
+	if filename not in SCRIPT_CACHE:
 		return
 	try:
-		exec(SCRIPT_CACHE[name], globals(), globals())
+		exec(SCRIPT_CACHE[filename], globals(), globals())
 	except Exception as e:
 		print(e)
 
+def command(ARGS):
+	switch(ARGS, _dir='commands')
 
 SERIAL_BLOCK_CALLBACK = None
 SERIAL_BLOCK = ''
@@ -226,7 +233,7 @@ class Gamepad:
 
 LOOPS = {}
 def addloop(name, script):
-	LOOPS[name] = (lambda _=compile(script, name, 'exec'): exec(_, globals, globals)) if isinstance(script, str) else script
+	LOOPS[name] = (lambda _=compile(script, name, 'exec'): exec(_, globals(), globals())) if isinstance(script, str) else script
 
 def removeloop(name):
 	del LOOPS[name]
@@ -240,9 +247,9 @@ def runloops():
 			print(e)
 			bad.append(name)
 	for name in bad:
-		del LOOPS[name]
+		removeloop(name)
 
-addloop('loop', lambda: run('loop'))
+addloop('loop', lambda: command('loop'))
 
 neopixel = neopixel.NeoPixel(board.NEOPIXEL, 1)
 
@@ -256,14 +263,13 @@ JOYSTICK1 = JoyStick(A2, A3)
 KEYMATRIX = keypad.KeyMatrix(
 	columns_to_anodes=True,
 	column_pins=(board.D5, board.D6, board.D7, board.D8, board.D9, board.D10),
-	row_pins=(board.D2, board.D3, board.D4),
+	row_pins=(board.D2, board.D3, board.D4, board.SCK, board.MISO, board.MOSI),
 	debounce_threshold=2,
 )
 print('key_count=' + str(KEYMATRIX.key_count))
-pressed_scripts = set()
+pressed_switches = set()
 
-for d in usb_hid.devices:
-	print('device ' + str(d.usage_page) + ' ' + str(d.usage))
+#for d in usb_hid.devices: print('device ' + str(d.usage_page) + ' ' + str(d.usage))
 
 keyboard = Keyboard(usb_hid.devices)
 consumer = ConsumerControlWrapper(usb_hid.devices)
@@ -272,16 +278,16 @@ gamepad = Gamepad(usb_hid.devices, JOYSTICK0, JOYSTICK1)
 joymouse = JoyMouse(JOYSTICK0)
 
 set_layer('default')
-run('setup')
+command(['setup'])
 
 while True:
 	event = KEYMATRIX.events.get()
 	if event and 0 <= event.key_number < len(KEYMAP):
 		if event.pressed:
-			pressed_scripts.add(KEYMAP[event.key_number])
-		elif KEYMAP[event.key_number] in pressed_scripts:
-			pressed_scripts.remove(KEYMAP[event.key_number])
-		run(KEYMAP[event.key_number])
+			pressed_switches.add(KEYMAP[event.key_number])
+		elif KEYMAP[event.key_number] in pressed_switches:
+			pressed_switches.remove(KEYMAP[event.key_number])
+		switch(KEYMAP[event.key_number])
 	# If a command is entered on Serial, exec it.
 	# https://webserial.io/
 	if supervisor.runtime.serial_bytes_available:
@@ -297,7 +303,5 @@ while True:
 				SERIAL_BLOCK_CALLBACK = None
 		else:
 			# todo buffer, split lines
-			ARGS = serial_bytes.strip().split()
-			if ARGS:
-				run(ARGS[0])
+			command(serial_bytes.strip().split())
 	runloops()
