@@ -221,11 +221,11 @@ class Gamepad:
 		j0 = self._joystick0.loop()
 		j1 = self._joystick1.loop()
 		if j0:
-			self._report[2] = j0[0] & 0xff
-			self._report[3] = j0[1] & 0xff
+			self._report[3] = j0[0] & 0xff
+			self._report[4] = j0[1] & 0xff
 		if j1:
-			self._report[4] = j1[0] & 0xff
-			self._report[5] = j1[1] & 0xff
+			self._report[5] = j1[0] & 0xff
+			self._report[6] = j1[1] & 0xff
 		if j0 or j1:
 			self._send()
 
