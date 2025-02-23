@@ -1,2 +1,0 @@
-# hard reset
-microcontroller.reset()
