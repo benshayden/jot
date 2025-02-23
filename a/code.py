@@ -254,7 +254,7 @@ JOYSTICK0 = JoyStick(A0, A1)
 JOYSTICK1 = JoyStick(A2, A3)
 
 KEYMATRIX = keypad.KeyMatrix(
-  columns_to_anodes=True,
+	columns_to_anodes=True,
 	column_pins=(board.D5, board.D6, board.D7, board.D8, board.D9, board.D10),
 	row_pins=(board.D2, board.D3, board.D4),
 	debounce_threshold=2,
