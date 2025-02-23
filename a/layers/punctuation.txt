@@ -1,5 +1,5 @@
 layer default
-layer other
+layer navigation
 kb ZERO
 kb ONE
 kb TWO
