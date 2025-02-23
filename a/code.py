@@ -188,7 +188,7 @@ class JoyMouse:
 class Gamepad:
 	def __init__(self, devices, joystick0, joystick1):
 		self._device = find_device(devices, usage_page=1, usage=5)
-		self._report = bytearray(6)
+		self._report = bytearray(7)
 		self._joystick0 = joystick0
 		self._joystick1 = joystick1
 		self._wait()
