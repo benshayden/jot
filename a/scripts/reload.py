@@ -1,2 +1,0 @@
-# soft reset
-supervisor.reload()
