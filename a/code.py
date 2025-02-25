@@ -288,13 +288,34 @@ JOYSTICK1 = JoyStick(A2, Interval(0.0, 32750.0), Interval(32780.0, 65535.0), A3,
 _event = keypad.Event()
 event = None
 KEYMATRIX = keypad.KeyMatrix(
-  columns_to_anodes=True,
+	columns_to_anodes=True,
 	column_pins=(board.D5, board.D6, board.D7, board.D8, board.D9, board.D10),
 	row_pins=(board.D2, board.D3, board.D4, board.SCK, board.MISO, board.MOSI),
 	debounce_threshold=2,
 )
 print('key_count=' + str(KEYMATRIX.key_count))
 pressed_switches = set()
+
+_switch_hist = {}
+try:
+	for line in open('/hist.txt'):
+		line = line.strip()
+		comma = line.find(',')
+		if comma < 1 or not line[:comma].isdigit() or comma >= len(line):
+			continue
+		_switch_hist[line[comma + 1:]] = int(line[:comma])
+except Exception as e:
+	print(e)
+
+def flush_switch_hist():
+	with open('/hist.txt', 'w') as f:
+		for s, n in _switch_hist.items():
+			f.write('{n},{s}\n'.format(s=' '.join(s), n=n))
+
+@addloop('flush_switch_hist')
+def _():
+	if everyms(1000 * 60 * 10, 'flush_switch_hist'):
+		flush_switch_hist()
 
 FakeEvent = collections.namedtuple('FakeEvent', ('pressed',))
 PRESS = FakeEvent(True)
@@ -317,6 +338,7 @@ while True:
 		event = _event
 		if event.pressed:
 			pressed_switches.add(KEYMAP[event.key_number])
+			_switch_hist[KEYMAP[event.key_number]] = _switch_hist.get(KEYMAP[event.key_number], 0) + 1
 		elif KEYMAP[event.key_number] in pressed_switches:
 			pressed_switches.remove(KEYMAP[event.key_number])
 		switch(KEYMAP[event.key_number])
