@@ -232,6 +232,49 @@ class Gamepad:
 	def _send(self):
 		self._device.send_report(self._report)
 
+class Log:
+	def __init__(self, capacity=100):
+		self.capacity = capacity
+		self._events = [Log.Event(0, False, ()) for i in range(self.capacity)]
+		self._i = -1
+		self._len = 0
+
+	def __iter__(self):
+		for i in range(self._len):
+			yield self[i]
+
+	def __call__(self, timestamp, pressed, switch):
+		# Ensure len(self._events) = self.capacity in case capacity changed
+		if len(self._events) > self.capacity:
+			del self._events[(self._i + 1):(self._i + 1 + len(self._events) - self.capacity)]
+			print('a',[e.timestamp for e in self._events])
+			if len(self._events) > self.capacity:
+				self._i -= (len(self._events) - self.capacity)
+				del self._events[:(len(self._events) - self.capacity)]
+		while len(self._events) < self.capacity:
+			self._events.insert(self._i + 1, Log.Event(0, False, ()))
+		
+		self._i = (self._i + 1) % self.capacity
+		self._len = min(self.capacity, 1 + self._len)
+		self._events[self._i].timestamp = timestamp
+		self._events[self._i].pressed = pressed
+		self._events[self._i].switch = switch
+
+	def __len__(self):
+		return self._len
+
+	def __getitem__(self, i):
+		# [0] is the previous event, [1] is the one before that
+		return self._events[self._i - i]
+
+	class Event:
+		def __init__(self, timestamp, pressed, s):
+			self.timestamp = timestamp
+			self.pressed = pressed
+			self.switch = s
+
+log = Log()
+
 LOOPS = {}
 def addloop(name, script):
 	LOOPS[name] = (lambda _=compile(script, name, 'exec'): exec(_, globals(), globals())) if isinstance(script, str) else script
@@ -261,6 +304,7 @@ A3 = AnalogIn(board.A3)
 JOYSTICK0 = JoyStick(A0, A1)
 JOYSTICK1 = JoyStick(A2, A3)
 
+event = keypad.Event()
 KEYMATRIX = keypad.KeyMatrix(
   columns_to_anodes=True,
 	column_pins=(board.D5, board.D6, board.D7, board.D8, board.D9, board.D10),
@@ -282,13 +326,13 @@ set_layer('default')
 command(['setup'])
 
 while True:
-	event = KEYMATRIX.events.get()
-	if event and 0 <= event.key_number < len(KEYMAP):
+	if KEYMATRIX.events.get_into(event) and 0 <= event.key_number < len(KEYMAP):
 		if event.pressed:
 			pressed_switches.add(KEYMAP[event.key_number])
 		elif KEYMAP[event.key_number] in pressed_switches:
 			pressed_switches.remove(KEYMAP[event.key_number])
 		switch(KEYMAP[event.key_number])
+		log(event.timestamp, event.pressed, KEYMAP[event.key_number])
 	# If a command is entered on Serial, exec it.
 	# https://webserial.io/
 	if supervisor.runtime.serial_bytes_available:
