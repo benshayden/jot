@@ -1,4 +1,5 @@
 import board
+import collections
 import gc
 import keypad
 import math
@@ -276,8 +277,14 @@ class Log:
 log = Log()
 
 LOOPS = {}
-def addloop(name, script):
-	LOOPS[name] = (lambda _=compile(script, name, 'exec'): exec(_, globals(), globals())) if isinstance(script, str) else script
+def addloop(name, script=None):
+	if script is None:
+		def wrapper(fun):
+			LOOPS[name] = fun
+		return wrapper
+	if isinstance(script, str):
+		script = lambda _=compile(script, name, 'exec'): exec(_, globals(), globals())
+	LOOPS[name] = script
 
 def removeloop(name):
 	del LOOPS[name]
@@ -304,7 +311,8 @@ A3 = AnalogIn(board.A3)
 JOYSTICK0 = JoyStick(A0, A1)
 JOYSTICK1 = JoyStick(A2, A3)
 
-event = keypad.Event()
+_event = keypad.Event()
+event = None
 KEYMATRIX = keypad.KeyMatrix(
   columns_to_anodes=True,
 	column_pins=(board.D5, board.D6, board.D7, board.D8, board.D9, board.D10),
@@ -313,6 +321,10 @@ KEYMATRIX = keypad.KeyMatrix(
 )
 print('key_count=' + str(KEYMATRIX.key_count))
 pressed_switches = set()
+
+FakeEvent = collections.namedtuple('FakeEvent', ('pressed',))
+PRESS = FakeEvent(True)
+RELEASE = FakeEvent(False)
 
 #for d in usb_hid.devices: print('device ' + str(d.usage_page) + ' ' + str(d.usage))
 
@@ -326,7 +338,9 @@ set_layer('default')
 command(['setup'])
 
 while True:
-	if KEYMATRIX.events.get_into(event) and 0 <= event.key_number < len(KEYMAP):
+	event = None
+	if KEYMATRIX.events.get_into(_event) and 0 <= _event.key_number < len(KEYMAP):
+		event = _event
 		if event.pressed:
 			pressed_switches.add(KEYMAP[event.key_number])
 		elif KEYMAP[event.key_number] in pressed_switches:
