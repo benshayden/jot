@@ -21,3 +21,12 @@ ccc VOLUME_DECREMENT
 ccc VOLUME_INCREMENT
 ccc BRIGHTNESS_DECREMENT
 ccc BRIGHTNESS_INCREMENT
+record
+macro 0
+macro 1
+macro 2
+macro 3
+macro 4
+macro 5
+macro 6
+macro 7
