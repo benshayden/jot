@@ -297,6 +297,7 @@ print('key_count=' + str(KEYMATRIX.key_count))
 pressed_switches = set()
 
 _switch_hist = {}
+_switch_hist_count = 0
 try:
 	for line in open('/hist.txt'):
 		line = line.strip()
@@ -308,12 +309,19 @@ except Exception as e:
 	print(e)
 
 def flush_switch_hist():
+	if _switch_hist_count < 100:
+		return
 	with open('/hist.txt', 'w') as f:
 		for s, n in _switch_hist.items():
 			f.write('{n},{s}\n'.format(s=' '.join(s), n=n))
+	_switch_hist_count = 0
 
-@addloop('flush_switch_hist')
+@addloop('switch_hist')
 def _():
+	global _switch_hist_count
+	if event and event.pressed:
+		_switch_hist[KEYMAP[event.key_number]] = _switch_hist.get(KEYMAP[event.key_number], 0) + 1
+		_switch_hist_count += 1
 	if everyms(1000 * 60 * 10, 'flush_switch_hist'):
 		flush_switch_hist()
 
@@ -338,7 +346,6 @@ while True:
 		event = _event
 		if event.pressed:
 			pressed_switches.add(KEYMAP[event.key_number])
-			_switch_hist[KEYMAP[event.key_number]] = _switch_hist.get(KEYMAP[event.key_number], 0) + 1
 		elif KEYMAP[event.key_number] in pressed_switches:
 			pressed_switches.remove(KEYMAP[event.key_number])
 		switch(KEYMAP[event.key_number])
