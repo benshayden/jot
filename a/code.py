@@ -101,105 +101,67 @@ def everyms(ms, usage):
 		return True
 	return False
 
+Interval = collections.namedtuple('Interval', ('min', 'max'))
 
 class JoyStick:
-	scale = float(1 << 15) # half of the max value
-
-	def __init__(self, xpin, ypin, ms=10):
+	def __init__(self, xpin, xneg, xpos, ypin, yneg, ypos):
 		self.xin = xpin
+		self.xneg = xneg
+		self.xpos = xpos
 		self.yin = ypin
-		self.ms = ms
-		self.deadzone = 0.01
-		self.speed = 0.1
-		self.xcenter = self.scale
-		self.ycenter = self.scale
+		self.yneg = yneg
+		self.ypos = ypos
 
-		# temporary state
-		self.start = self.now()
-		self.xbuf = 0.0
-		self.ybuf = 0.0
-		self.samples = 0
-		self.prevsample = self.start - 1
-		self.prevdebug = 0
-
-		self.debug = False # set to true to enable regularly printing debug info
-		self.debugms = 1000 # period of debug printing
-
-	def calibrate(self, samples=100):
-		self.xcenter = 0
-		self.ycenter = 0
-		for _ in range(samples):
-			self.xcenter += float(self.xin.value) / samples
-			self.ycenter += float(self.yin.value) / samples
-			time.sleep(0.001)
-		self.deadzone = 0
-		for _ in range(samples):
-			x = float(self.xin.value - self.xcenter) / self.scale
-			y = float(self.yin.value - self.ycenter) / self.scale
-			self.deadzone = max(self.deadzone, math.sqrt(x * x + y * y))
-			time.sleep(0.001)
-		if self.debug:
-			print('xcenter ' + str(self.xcenter) + ' ycenter ' + str(self.ycenter) + ' deadzone ' + str(self.deadzone))
-
-	def now(self):
-		return supervisor.ticks_ms()
-
+	def _norm(self, val, neg, pos):
+		if neg.min <= val <= neg.max:
+			return (val - neg.max) / (neg.max - neg.min)
+		elif pos.min <= val <= pos.max:
+			return (val - pos.min) / (pos.max - pos.min)
+		return 0.0
+	
 	def loop(self):
-		now = self.now()
-		if now == self.prevsample:
-			return
-		self.prevsample = now
-		xnew = self.xin.value
-		ynew = self.yin.value
-		# scale from [0,2*self.scale] to [-1.0,1.0]
-		self.xbuf += (xnew - self.xcenter) / self.scale
-		self.ybuf += (ynew - self.ycenter) / self.scale
-		self.samples += 1
-
-		if ticks_diff(now, self.start) >= self.ms:
-			# self.samples should equal self.ms but might be less if the main loop was stuck on something big for over 1ms.
-			self.start = now
-			if (math.sqrt(self.xbuf * self.xbuf + self.ybuf * self.ybuf) / self.samples) < self.deadzone:
-				self.xbuf = self.ybuf = 0
-			x, newxbuf = self.clean(self.xbuf)
-			y, newybuf = self.clean(self.ybuf)
-
-			if self.debug and ticks_diff(now, self.prevdebug) >= self.debugms:
-				print('joystick ' + str(self.samples) + ' ' + str(self.xbuf) + ' ' + str(self.ybuf) + ' ' + str(x) + ' ' + str(y))
-				self.prevdebug = now
-
-			self.xbuf = newxbuf
-			self.ybuf = newybuf
-			self.samples = 0
-			return (x, y)
-
-	def clean(self, n):
-		if n < 0:
-			n = min(0, n + self.deadzone)
-		else:
-			n = max(0, n - self.deadzone)
-		n /= (1.0 - self.deadzone)
-		# instead of rounding, truncate and carry the fractional part over to the next move().
-		whole, frac = divmod(self.speed * n * 127.0 / self.samples, 1.0)
-		return max(-127, min(127, int(whole))), frac * self.samples / 127.0
+		# returns x,y where x and y are in [-1.0, 1.0]
+		return self._norm(self.xin.value, self.xneg, self.xpos), self._norm(self.yin.value, self.yneg, self.ypos)
 	
 
 class JoyMouse:
-	def __init__(self, joystick):
+	def __init__(self, joystick, ms=50, speed=0.1):
 		self._joystick = joystick
-
+		self.ms = ms
+		self.speed = speed
+		self._x = 0.0
+		self._y = 0.0
+		self._samples = 0
+	
 	def loop(self):
-		xy = self._joystick.loop()
-		if xy:
-			mouse.move(*xy)
+		if everyms(1, id(self) - 1):
+			xnorm, ynorm = self._joystick.loop()
+			self._x += xnorm
+			self._y += ynorm
+			self._samples += 1
+			if everyms(self.ms, id(self)):
+				dx, self._x = self._buf(self._x)
+				dy, self._y = self._buf(self._y)
+				self._samples = 0
+				mouse.move(dx, dy)
+	
+	def _buf(self, n):
+		whole, frac = divmod(self.speed * n * 127.0 / self._samples, 1.0)
+		return min(127, max(-127, int(whole))) & 0xff, frac * self._samples / 127.0
 
 
 class Gamepad:
-	def __init__(self, devices, joystick0, joystick1):
+	def __init__(self, devices, joystick0, joystick1, ms=50):
 		self._device = find_device(devices, usage_page=1, usage=5)
 		self._report = bytearray(7)
 		self._joystick0 = joystick0
 		self._joystick1 = joystick1
+		self.ms = ms
+		self._x0 = 0.0
+		self._y0 = 0.0
+		self._x1 = 0.0
+		self._y1 = 0.0
+		self._samples = 0
 		self._wait()
 
 	def _wait(self):
@@ -219,17 +181,29 @@ class Gamepad:
 		self._send()
 
 	def loop(self):
-		j0 = self._joystick0.loop()
-		j1 = self._joystick1.loop()
-		if j0:
-			self._report[3] = j0[0] & 0xff
-			self._report[4] = j0[1] & 0xff
-		if j1:
-			self._report[5] = j1[0] & 0xff
-			self._report[6] = j1[1] & 0xff
-		if j0 or j1:
-			self._send()
+		if everyms(1, id(self) - 1):
+			x0, y0 = self._joystick0.loop()
+			self._x0 += x0
+			self._y0 += y0
+			x1, y1 = self._joystick1.loop()
+			self._x1 += x1
+			self._y1 += y1
+			self._samples += 1
+			if everyms(self.ms, id(self)):
+				self._report[3] = self._round(self._x0)
+				self._report[4] = self._round(self._y0)
+				self._report[5] = self._round(self._x1)
+				self._report[6] = self._round(self._y1)
+				self._send()
+				self._x0 = 0.0
+				self._y0 = 0.0
+				self._x1 = 0.0
+				self._y1 = 0.0
+				self._samples = 0
 
+	def _round(self, n):
+		return min(127, max(-127, round(127.0 * n / self.samples))) & 0xff
+	
 	def _send(self):
 		self._device.send_report(self._report)
 
@@ -308,8 +282,8 @@ A0 = AnalogIn(board.A0)
 A1 = AnalogIn(board.A1)
 A2 = AnalogIn(board.A2)
 A3 = AnalogIn(board.A3)
-JOYSTICK0 = JoyStick(A0, A1)
-JOYSTICK1 = JoyStick(A2, A3)
+JOYSTICK0 = JoyStick(A0, Interval(0.0, 32750.0), Interval(32780.0, 65535.0), A1, Interval(0.0, 32750.0), Interval(32780.0, 65535.0))
+JOYSTICK1 = JoyStick(A2, Interval(0.0, 32750.0), Interval(32780.0, 65535.0), A3, Interval(0.0, 32750.0), Interval(32780.0, 65535.0))
 
 _event = keypad.Event()
 event = None
