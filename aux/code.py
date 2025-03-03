@@ -160,7 +160,6 @@ _switch = DigitalInOut(board.SWITCH)
 _switch.direction = Direction.INPUT
 _switch.pull = Pull.UP
 switch = Debouncer(_switch)
-switchprev = switch.value
 key_event = keypad.Event()
 key_matrix = keypad.KeyMatrix(
 	columns_to_anodes=True,
@@ -174,13 +173,16 @@ A1 = AnalogIn(board.A1)
 A2 = AnalogIn(board.A2)
 A3 = AnalogIn(board.A3)
 joystick = JoyStick(A0, Interval(0.0, 32750.0), Interval(32780.0, 65535.0), A1, Interval(0.0, 32750.0), Interval(32780.0, 65535.0))
+joystick_packet = JoystickPacket(joystick.x, joystick.y)
 i2c = board.I2C()
 apds9960 = APDS9960(i2c)
 apds9960.enable_proximity = True
 apds9960.enable_color = True
-proximity_packet = ProximityPacket(0.0)
+proximity_packet = ProximityPacket(apds9960.proximity)
+color_packet = ColorPacket(apds9960.color_data[0], apds9960.color_data[1], apds9960.color_data[2])
 bmp280 = Adafruit_BMP280_I2C(i2c)
 lis3mdl = LIS3MDL(i2c)
+magnetometer_packet = MagnetometerPacket(lis3mdl.magnetic[0], lis3mdl.magnetic[1], lis3mdl.magnetic[2])
 sht31d = SHT31D(i2c)
 try:
 	from adafruit_lsm6ds.lsm6ds33 import LSM6DS33 as LSM6DS
@@ -188,17 +190,13 @@ try:
 except RuntimeError:
 	from adafruit_lsm6ds.lsm6ds3 import LSM6DS3 as LSM6DS
 	lsm6ds = LSM6DS(i2c)
-magnetometer_packet = MagnetometerPacket(lis3mdl.magnetic[0], lis3mdl.magnetic[1], lis3mdl.magnetic[2])
 accelerometer_packet = AccelerometerPacket(lsm6ds.acceleration[0], lsm6ds.acceleration[1], lsm6ds.acceleration[2])
 gyro_packet = GyroPacket(lsm6ds.gyro[0], lsm6ds.gyro[1], lsm6ds.gyro[2])
 
 while True:
-	if ble.connected:
-		# todo confirm client address is main_address, pair
+	if ble.connected and not paired:
 		for connection in ble.connections:
-			if not connection:
-				continue
-			connection_address = hexlify(_bleio_connection.address)
+			connection_address = hexlify(connection._bleio_connection.address)
 			if connection_address == main_address:
 				connection.pair()
 				print('paired with main')
@@ -207,24 +205,34 @@ while True:
 			else:
 				print('disconnecting', connection_address)
 				connection.disconnect()
-	if ble.connected and paired:
+	if paired:
 		switch.update()
-		if switch.value != switchprev:
+		if switch.rose or switch.fell: # todo remove
 			print('sending switch', switch.value)
 			button_packet._pressed = switch.value
 			uart_service.write(button_packet.to_bytes())
-			switchprev = switch.value
 			print('sent switch', switch.value)
-		if uart_service.in_waiting:
+		try: # todo remove
+			received = uart_service.in_waiting
+		except Exception as e:
+			received = False
+			paired = False
+		if received: # todo remove
 			packet = Packet.from_stream(uart_service)
 			print('received', packet)
 			if isinstance(packet, ButtonPacket):
 				neopixel.fill((0, 0, 0) if packet.pressed else (10, 10, 10))
 		if key_matrix.events.get_into(key_event):
-			button_packet._button = ord(0x30 + key_event.key_number)
+			button_packet._button = ord(0x80 + key_event.key_number)
 			button_packet._pressed = key_event.pressed
 			uart_service.write(button_packet.to_bytes())
 			print('sent', button_packet)
+		# todo joystick_packet.write()
+		# todo proximity_packet.write()
+		# todo color_packet.write()
+		# todo magnetometer_packet.write()
+		# todo accelerometer_packet.write()
+		# todo gyro_packet.write()
 	elif not ble.advertising:
 		print('advertising', hexlify(ble.address_bytes))
 		ble.start_advertising(advertisement)
