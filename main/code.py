@@ -207,33 +207,34 @@ class Gamepad:
 	def _send(self):
 		self._device.send_report(self._report)
 
-class Log:
-	def __init__(self, capacity=100):
+class RingBuffer:
+	def __init__(self, capacity=100, init=None):
 		self.capacity = capacity
-		self._events = [Log.Event(0, False, ()) for i in range(self.capacity)]
+		self._init = init if callable(init) else lambda: init
+		self._events = [self._init() for i in range(capacity)]
 		self._i = -1
 		self._len = 0
+
+	def _update(self, *params):
+		self._events[self._i] = params[0]
 
 	def __iter__(self):
 		for i in range(self._len):
 			yield self[i]
 
-	def __call__(self, timestamp, pressed, switch):
+	def __call__(self, *params):
 		# Ensure len(self._events) = self.capacity in case capacity changed
 		if len(self._events) > self.capacity:
 			del self._events[(self._i + 1):(self._i + 1 + len(self._events) - self.capacity)]
-			print('a',[e.timestamp for e in self._events])
 			if len(self._events) > self.capacity:
 				self._i -= (len(self._events) - self.capacity)
 				del self._events[:(len(self._events) - self.capacity)]
 		while len(self._events) < self.capacity:
-			self._events.insert(self._i + 1, Log.Event(0, False, ()))
+			self._events.insert(self._i + 1, self._init())
 		
 		self._i = (self._i + 1) % self.capacity
 		self._len = min(self.capacity, 1 + self._len)
-		self._events[self._i].timestamp = timestamp
-		self._events[self._i].pressed = pressed
-		self._events[self._i].switch = switch
+		self._update(*params)
 
 	def __len__(self):
 		return self._len
@@ -242,11 +243,23 @@ class Log:
 		# [0] is the previous event, [1] is the one before that
 		return self._events[self._i - i]
 
+class Log(RingBuffer):	
 	class Event:
-		def __init__(self, timestamp, pressed, s):
+		def __init__(self, timestamp=0, pressed=False, swtch=()):
 			self.timestamp = timestamp
 			self.pressed = pressed
-			self.switch = s
+			self.switch = swtch
+		
+		def __repr__(self):
+			return f'Event({self.timestamp}, {self.pressed}, {self.switch})'
+
+	def __init__(self, capacity=100):
+		super().__init__(capacity=capacity, init=lambda: Log.Event())
+
+	def _update(self, timestamp, pressed, swtch):
+		self._events[self._i].timestamp = timestamp
+		self._events[self._i].pressed = pressed
+		self._events[self._i].switch = swtch
 
 log = Log()
 
