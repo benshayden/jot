@@ -11,8 +11,10 @@ from adafruit_bluefruit_connect._xyz_packet import _XYZPacket
 import board
 import neopixel
 import keypad
+import supervisor
 from adafruit_debouncer import Debouncer
 from digitalio import DigitalInOut, Direction, Pull
+from analogio import AnalogIn
 from binascii import hexlify, unhexlify
 from time import sleep
 from adafruit_ble.services.standard.device_info import DeviceInfoService, BatteryService
@@ -22,21 +24,53 @@ from adafruit_lis3mdl import LIS3MDL
 from adafruit_sht31d import SHT31D
 
 class RingBuffer:
-	def __init__(self, capacity):
-		self._capacity = capacity
+	def __init__(self, capacity=100, init=None):
+		self.capacity = capacity
+		self._init = init if callable(init) else lambda: init
+		self._events = [self._init() for i in range(capacity)]
+		self._i = -1
+		self._len = 0
+
+	def _update(self, *params):
+		self._events[self._i] = params[0]
+
+	def __iter__(self):
+		for i in range(self._len):
+			yield self[i]
+
+	def __call__(self, *params):
+		# Ensure len(self._events) = self.capacity in case capacity changed
+		if len(self._events) > self.capacity:
+			del self._events[(self._i + 1):(self._i + 1 + len(self._events) - self.capacity)]
+			if len(self._events) > self.capacity:
+				self._i -= (len(self._events) - self.capacity)
+				del self._events[:(len(self._events) - self.capacity)]
+		while len(self._events) < self.capacity:
+			self._events.insert(self._i + 1, self._init())
+		
+		self._i = (self._i + 1) % self.capacity
+		self._len = min(self.capacity, 1 + self._len)
+		self._update(*params)
+
+	def __len__(self):
+		return self._len
+
+	def __getitem__(self, i):
+		# [0] is the previous event, [1] is the one before that
+		return self._events[self._i - i]
 
 class JoyStick:
-	def __init__(self, xpin, xneg, xpos, ypin, yneg, ypos, ms=1, capacity=50):
+	def __init__(self, xpin, xneg, xpos, ypin, yneg, ypos, window_ms=50):
 		self._xpin = xpin
 		self._xneg = xneg
 		self._xpos = xpos
 		self._ypin = ypin
 		self._yneg = yneg
 		self._ypos = ypos
-		self._ms = ms
-		self._x = RingBuffer(capacity)
-		self._y = RingBuffer(capacity)
-	
+		self._tick = 0
+		self._x = RingBuffer(capacity=window_ms, init=0.0)
+		self._y = RingBuffer(capacity=window_ms, init=0.0)
+
 	@property
 	def x(self) -> float:
 		return sum(self._x) / len(self._x)
@@ -53,8 +87,11 @@ class JoyStick:
 		return 0.0
 	
 	def loop(self):
-		self._x.add(self._norm(self.xin.value, self.xneg, self.xpos))
-		self._y.add(self._norm(self.yin.value, self.yneg, self.ypos))
+		now = supervisor.ticks_ms()
+		if now > self._tick:
+			self._tick = now
+			self._x(self._norm(self.xin.value, self.xneg, self.xpos))
+			self._y(self._norm(self.yin.value, self.yneg, self.ypos))
 
 def reprButtonPacket(self):
 	return f'ButtonPacket({self.button}, {self.pressed})'
@@ -132,6 +169,11 @@ key_matrix = keypad.KeyMatrix(
 	debounce_threshold=2,
 )
 button_packet = ButtonPacket('1', True)
+A0 = AnalogIn(board.A0)
+A1 = AnalogIn(board.A1)
+A2 = AnalogIn(board.A2)
+A3 = AnalogIn(board.A3)
+joystick = JoyStick(A0, Interval(0.0, 32750.0), Interval(32780.0, 65535.0), A1, Interval(0.0, 32750.0), Interval(32780.0, 65535.0))
 i2c = board.I2C()
 apds9960 = APDS9960(i2c)
 apds9960.enable_proximity = True
