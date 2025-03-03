@@ -13,7 +13,6 @@ if mnt.label != label:
 	mnt = storage.getmount('/')
 	mnt.label = label
 	storage.remount('/', readonly=True)
-storage.enable_usb_drive()
 
 # todo https://pid.codes/
 # 0x62='b', 0x68='h'
