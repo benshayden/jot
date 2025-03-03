@@ -1,14 +1,16 @@
 import board
 import digitalio
-import neopixel
 import storage
 import supervisor
 import time
 import usb_hid
+from neopixel import NeoPixel
 
-neopixel = neopixel.NeoPixel(board.NEOPIXEL, 1)
+neopixel = NeoPixel(board.NEOPIXEL, 1)
 
-supervisor.set_usb_identification('bsh', 'jot')
+# todo https://pid.codes/
+# 0x42='B', 0x48='H'
+supervisor.set_usb_identification(manufacturer='bsh', product='jot', vid=0x1209, pid=0x4248)
 
 cathode = digitalio.DigitalInOut(board.D2)
 cathode.direction = digitalio.Direction.INPUT
@@ -17,13 +19,20 @@ anode = digitalio.DigitalInOut(board.D5)
 anode.direction = digitalio.Direction.OUTPUT
 anode.value = True
 neopixel.fill((100, 0, 0))
-time.sleep(0.2)
+time.sleep(0.1)
+
+mnt = storage.getmount('/')
+label = 'JOT'
+if mnt.label != label:
+	storage.remount('/', readonly=False)
+	mnt = storage.getmount('/')
+	mnt.label = label
 
 readonly = cathode.value
 neopixel.fill((0, 100 if readonly else 0, 0 if readonly else 100))
 print('host can write CIRCUITPY but not jot' if readonly else 'jot can write CIRCUITPY but not host')
-storage.remount('/', readonly=readonly)
-time.sleep(0.5)
+if mnt.readonly != readonly:
+	storage.remount('/', readonly=readonly)
 neopixel.fill((0, 0, 0))
 
 gamepad = usb_hid.Device(
