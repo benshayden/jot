@@ -413,6 +413,10 @@ try:
 		return f'MagnetometerPacket({self._x}, {self._y}, {self._z})'
 	MagnetometerPacket.__repr__ = reprMagnetometerPacket
 	
+	def reprColorPacket(self):
+		return f'ColorPacket({self.color})'
+	ColorPacket.__repr__ = reprColorPacket
+	
 	class JoystickPacket(Packet):
 		_FMT_PARSE: str = "<xxffx"
 		PACKET_LENGTH: int = struct.calcsize(_FMT_PARSE)
