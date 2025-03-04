@@ -88,10 +88,10 @@ class JoyStick:
 	
 	def loop(self):
 		now = supervisor.ticks_ms()
-		if now > self._tick:
+		if ticks_diff(now, self._tick) > 0:
 			self._tick = now
-			self._x(self._norm(self.xin.value, self.xneg, self.xpos))
-			self._y(self._norm(self.yin.value, self.yneg, self.ypos))
+			self._x(self._norm(self._xpin.value, self._xneg, self._xpos))
+			self._y(self._norm(self._ypin.value, self._yneg, self._ypos))
 
 def reprButtonPacket(self):
 	return f'ButtonPacket({self.button}, {self.pressed})'
@@ -100,6 +100,10 @@ ButtonPacket.__repr__ = reprButtonPacket
 def reprAccelerometerPacket(self):
 	return f'AccelerometerPacket({self._x}, {self._y}, {self._z})'
 AccelerometerPacket.__repr__ = reprAccelerometerPacket
+
+def reprMagnetometerPacket(self):
+	return f'MagnetometerPacket({self._x}, {self._y}, {self._z})'
+MagnetometerPacket.__repr__ = reprMagnetometerPacket
 
 class JoystickPacket(Packet):
 	_FMT_PARSE: str = "<xxffx"
@@ -122,7 +126,7 @@ class JoystickPacket(Packet):
 		return self.add_checksum(partial_packet)
 
 	def __repr__(self):
-		return f'JoystickPacket()'
+		return f'JoystickPacket({self._x}, {self._y})'
 JoystickPacket.register_packet_type()
 
 _TICKS_PERIOD = const(1<<29)
