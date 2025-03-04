@@ -5,7 +5,7 @@ from adafruit_bluefruit_connect.packet import Packet
 from adafruit_bluefruit_connect.button_packet import ButtonPacket
 from adafruit_bluefruit_connect.color_packet import ColorPacket
 from adafruit_bluefruit_connect.accelerometer_packet import AccelerometerPacket
-from adafruit_bluefruit_connect.accelerometer_packet import MagnetometerPacket
+from adafruit_bluefruit_connect.magnetometer_packet import MagnetometerPacket
 from adafruit_bluefruit_connect.gyro_packet import GyroPacket
 from adafruit_bluefruit_connect._xyz_packet import _XYZPacket
 import board
