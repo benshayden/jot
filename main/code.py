@@ -416,6 +416,10 @@ try:
 	def reprColorPacket(self):
 		return f'ColorPacket({self.color})'
 	ColorPacket.__repr__ = reprColorPacket
+
+	def reprGyroPacket(self):
+		return f'GyroPacket({self._x}, {self._y}, {self._z})'
+	GyroPacket.__repr__ = reprGyroPacket
 	
 	class JoystickPacket(Packet):
 		_FMT_PARSE: str = "<xxffx"
