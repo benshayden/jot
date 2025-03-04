@@ -390,7 +390,7 @@ try:
 	from adafruit_ble.advertising import Advertisement
 	from adafruit_ble.advertising.standard import ProvideServicesAdvertisement
 	from adafruit_ble.services.nordic import UARTService
-	from adafruit_ble.services.standard.hid import HIDService
+	from adafruit_ble.services.standard.hid import HIDService, DEFAULT_HID_DESCRIPTOR
 	from adafruit_ble.services.standard.device_info import DeviceInfoService
 	from adafruit_ble.services.standard import BatteryService
 	from adafruit_bluefruit_connect.packet import Packet
@@ -437,14 +437,16 @@ try:
 			return f'JoystickPacket({self._x}, {self._y})'
 	JoystickPacket.register_packet_type()
 	
+	gamepad_descriptor = b'' # todo try to read this from usb_gamepad
+	
 	ble = BLERadio()
 	ble.name = 'jot'
-	ble_hid = HIDService()
+	ble_hid = HIDService(DEFAULT_HID_DESCRIPTOR + gamepad_descriptor)
 	ble_keyboard = Keyboard(ble_hid.devices)
 	ble_keyboard_layout = KeyboardLayoutUS(ble_keyboard)
 	ble_consumer = ConsumerControlWrapper(ble_hid.devices)
 	ble_mouse = Mouse(ble_hid.devices)
-	ble_gamepad = Gamepad(ble_hid.devices, JOYSTICK0, JOYSTICK1)
+	# todo ble_gamepad = Gamepad(ble_hid.devices, JOYSTICK0, JOYSTICK1)
 	ble_device_info_service = DeviceInfoService(
 		software_revision='2025-03-03',
 		manufacturer='bsh',
