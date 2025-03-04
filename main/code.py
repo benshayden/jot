@@ -43,6 +43,42 @@ from adafruit_bmp280 import Adafruit_BMP280_I2C
 from adafruit_lis3mdl import LIS3MDL
 from adafruit_sht31d import SHT31D
 
+def reprButtonPacket(self):
+	return f'ButtonPacket({self.button}, {self.pressed})'
+ButtonPacket.__repr__ = reprButtonPacket
+
+def reprAccelerometerPacket(self):
+	return f'AccelerometerPacket({self._x}, {self._y}, {self._z})'
+AccelerometerPacket.__repr__ = reprAccelerometerPacket
+
+def reprMagnetometerPacket(self):
+	return f'MagnetometerPacket({self._x}, {self._y}, {self._z})'
+MagnetometerPacket.__repr__ = reprMagnetometerPacket
+
+class JoystickPacket(Packet):
+	_FMT_PARSE: str = "<xxffx"
+	PACKET_LENGTH: int = struct.calcsize(_FMT_PARSE)
+	# _FMT_CONSTRUCT doesn't include the trailing checksum byte.
+	_FMT_CONSTRUCT: str = "<2sff"
+	_TYPE_HEADER: bytes = b"!J"
+
+	def __init__(self, x: float, y: float):
+		self._x = x
+		self._y = y
+
+	def to_bytes(self) -> bytes:
+		partial_packet = struct.pack(
+				self._FMT_CONSTRUCT,
+				self._TYPE_HEADER,
+				self._x,
+				self._y,
+		)
+		return self.add_checksum(partial_packet)
+
+	def __repr__(self):
+		return f'JoystickPacket({self._x}, {self._y})'
+JoystickPacket.register_packet_type()
+
 class ConsumerControlWrapper(ConsumerControl):
 	def release(self, *unused):
 		super().release()
