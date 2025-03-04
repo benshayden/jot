@@ -329,6 +329,7 @@ def runloops():
 		removeloop(name)
 
 addloop('loop', lambda: run_command(['loop']))
+addloop('cli', lambda: cli.loop())
 
 neopixel = neopixel.NeoPixel(board.NEOPIXEL, 1)
 
@@ -366,8 +367,8 @@ def flush_switch_hist():
 	if _switch_hist_count < 100:
 		return
 	with open('/hist.txt', 'w') as f:
-		for s, n in _switch_hist.items():
-			f.write('{n},{s}\n'.format(s=' '.join(s), n=n))
+		for s, n in sorted(_switch_hist.items(), key=lambda item: -item[1]):
+			f.write(f'{n},{' '.join(s)}\n')
 	_switch_hist_count = 0
 
 @addloop('switch_hist')
@@ -433,7 +434,9 @@ voltage_monitor = AnalogIn(board.VOLTAGE_MONITOR)
 def _():
 	if everyms(1000 * 60, 'battery'):
 		# todo average RingBuffer?
+		# todo record times between percentages?
 		ble_battery_service.level = min(100, max(0, int(100.0 * voltage_monitor.value / 65536.0)))
+		print(f'battery voltage={voltage_monitor.value} percent={ble_battery_service.level}')
 		red_led = (ble_battery_service.level < 10)
 
 # todo blue_led.value = True when host not connected
@@ -455,5 +458,4 @@ while True:
 			pressed_switches.remove(switch)
 		run_switch(switch)
 		log(event.timestamp, event.pressed, switch)
-	cli.loop()
 	runloops()
