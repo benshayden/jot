@@ -23,62 +23,6 @@ from adafruit_hid.keyboard_layout_us import KeyboardLayoutUS
 from adafruit_hid.keycode import Keycode
 from adafruit_hid.mouse import Mouse
 
-from adafruit_ble import BLERadio
-from adafruit_ble.advertising import Advertisement
-from adafruit_ble.advertising.standard import ProvideServicesAdvertisement
-from adafruit_ble.services.nordic import UARTService
-from adafruit_ble.services.standard.hid import HIDService
-from adafruit_ble.services.standard.device_info import DeviceInfoService
-from adafruit_ble.services.standard import BatteryService
-from adafruit_bluefruit_connect.packet import Packet
-from adafruit_bluefruit_connect.button_packet import ButtonPacket
-from adafruit_bluefruit_connect.color_packet import ColorPacket
-from adafruit_bluefruit_connect.accelerometer_packet import AccelerometerPacket
-from adafruit_bluefruit_connect.magnetometer_packet import MagnetometerPacket
-from adafruit_bluefruit_connect.gyro_packet import GyroPacket
-from adafruit_bluefruit_connect._xyz_packet import _XYZPacket
-from adafruit_debouncer import Debouncer
-from adafruit_apds9960.apds9960 import APDS9960
-from adafruit_bmp280 import Adafruit_BMP280_I2C
-from adafruit_lis3mdl import LIS3MDL
-from adafruit_sht31d import SHT31D
-
-def reprButtonPacket(self):
-	return f'ButtonPacket({self.button}, {self.pressed})'
-ButtonPacket.__repr__ = reprButtonPacket
-
-def reprAccelerometerPacket(self):
-	return f'AccelerometerPacket({self._x}, {self._y}, {self._z})'
-AccelerometerPacket.__repr__ = reprAccelerometerPacket
-
-def reprMagnetometerPacket(self):
-	return f'MagnetometerPacket({self._x}, {self._y}, {self._z})'
-MagnetometerPacket.__repr__ = reprMagnetometerPacket
-
-class JoystickPacket(Packet):
-	_FMT_PARSE: str = "<xxffx"
-	PACKET_LENGTH: int = struct.calcsize(_FMT_PARSE)
-	# _FMT_CONSTRUCT doesn't include the trailing checksum byte.
-	_FMT_CONSTRUCT: str = "<2sff"
-	_TYPE_HEADER: bytes = b"!J"
-
-	def __init__(self, x: float, y: float):
-		self._x = x
-		self._y = y
-
-	def to_bytes(self) -> bytes:
-		partial_packet = struct.pack(
-				self._FMT_CONSTRUCT,
-				self._TYPE_HEADER,
-				self._x,
-				self._y,
-		)
-		return self.add_checksum(partial_packet)
-
-	def __repr__(self):
-		return f'JoystickPacket({self._x}, {self._y})'
-JoystickPacket.register_packet_type()
-
 class ConsumerControlWrapper(ConsumerControl):
 	def release(self, *unused):
 		super().release()
@@ -433,50 +377,141 @@ if hasattr(board, 'RED_LED'):
 else:
 	red_led = None
 
+i2c = board.I2C() if hasattr(board, 'I2C') else None
+
 keyboard = usb_keyboard = Keyboard(usb_hid.devices)
 keyboard_layout = usb_keyboard_layout = KeyboardLayoutUS(usb_keyboard)
 consumer = usb_consumer = ConsumerControlWrapper(usb_hid.devices)
 mouse = usb_mouse = Mouse(usb_hid.devices)
 gamepad = usb_gamepad = Gamepad(usb_hid.devices, JOYSTICK0, JOYSTICK1)
 
-ble_hid = HIDService()
-ble_keyboard = Keyboard(ble_hid.devices)
-ble_keyboard_layout = KeyboardLayoutUS(ble_keyboard)
-ble_consumer = ConsumerControlWrapper(ble_hid.devices)
-ble_mouse = Mouse(ble_hid.devices)
-ble_gamepad = Gamepad(ble_hid.devices, JOYSTICK0, JOYSTICK1)
-ble_device_info_service = DeviceInfoService(
-	software_revision='2025-03-03',
-	manufacturer='bsh',
-	model_number='jot',
-)
-ble_battery_service = BatteryService()
-ble_uart_service = UARTService()
-ble_advertisement = ProvideServicesAdvertisement(ble_hid, ble_uart_service, ble_device_info_service, ble_battery_service)
-ble_advertisement.appearance = 961 # Keyboard
-ble = BLERadio()
-ble.name = 'jot'
-ble_advertisement.complete_name = ble.name
-ble_aux_address = open('/aux.txt').read()
-scan_response = Advertisement()
-scan_response.complete_name = 'jot'
-scan_response.short_name = 'jot'
-scan_response.appearance = 961
-ble.start_advertising(ble_advertisement, ble_scan_response)
-print('advertising', hexlify(ble.address_bytes))
-voltage_monitor = AnalogIn(board.VOLTAGE_MONITOR)
+try:
+	from adafruit_ble import BLERadio
+	from adafruit_ble.advertising import Advertisement
+	from adafruit_ble.advertising.standard import ProvideServicesAdvertisement
+	from adafruit_ble.services.nordic import UARTService
+	from adafruit_ble.services.standard.hid import HIDService
+	from adafruit_ble.services.standard.device_info import DeviceInfoService
+	from adafruit_ble.services.standard import BatteryService
+	from adafruit_bluefruit_connect.packet import Packet
+	from adafruit_bluefruit_connect.button_packet import ButtonPacket
+	from adafruit_bluefruit_connect.color_packet import ColorPacket
+	from adafruit_bluefruit_connect.accelerometer_packet import AccelerometerPacket
+	from adafruit_bluefruit_connect.magnetometer_packet import MagnetometerPacket
+	from adafruit_bluefruit_connect.gyro_packet import GyroPacket
+	from adafruit_bluefruit_connect._xyz_packet import _XYZPacket
+	
+	def reprButtonPacket(self):
+		return f'ButtonPacket({self.button}, {self.pressed})'
+	ButtonPacket.__repr__ = reprButtonPacket
+	
+	def reprAccelerometerPacket(self):
+		return f'AccelerometerPacket({self._x}, {self._y}, {self._z})'
+	AccelerometerPacket.__repr__ = reprAccelerometerPacket
+	
+	def reprMagnetometerPacket(self):
+		return f'MagnetometerPacket({self._x}, {self._y}, {self._z})'
+	MagnetometerPacket.__repr__ = reprMagnetometerPacket
+	
+	class JoystickPacket(Packet):
+		_FMT_PARSE: str = "<xxffx"
+		PACKET_LENGTH: int = struct.calcsize(_FMT_PARSE)
+		# _FMT_CONSTRUCT doesn't include the trailing checksum byte.
+		_FMT_CONSTRUCT: str = "<2sff"
+		_TYPE_HEADER: bytes = b"!J"
+	
+		def __init__(self, x: float, y: float):
+			self._x = x
+			self._y = y
+	
+		def to_bytes(self) -> bytes:
+			partial_packet = struct.pack(
+					self._FMT_CONSTRUCT,
+					self._TYPE_HEADER,
+					self._x,
+					self._y,
+			)
+			return self.add_checksum(partial_packet)
+	
+		def __repr__(self):
+			return f'JoystickPacket({self._x}, {self._y})'
+	JoystickPacket.register_packet_type()
+	
+	ble = BLERadio()
+	ble.name = 'jot'
+	ble_hid = HIDService()
+	ble_keyboard = Keyboard(ble_hid.devices)
+	ble_keyboard_layout = KeyboardLayoutUS(ble_keyboard)
+	ble_consumer = ConsumerControlWrapper(ble_hid.devices)
+	ble_mouse = Mouse(ble_hid.devices)
+	ble_gamepad = Gamepad(ble_hid.devices, JOYSTICK0, JOYSTICK1)
+	ble_device_info_service = DeviceInfoService(
+		software_revision='2025-03-03',
+		manufacturer='bsh',
+		model_number=ble.name,
+	)
+	ble_battery_service = BatteryService()
+	ble_uart_service = UARTService()
+	ble_advertisement = ProvideServicesAdvertisement(ble_hid, ble_uart_service, ble_device_info_service, ble_battery_service)
+	ble_advertisement.appearance = 961 # Keyboard
+	ble_advertisement.complete_name = ble.name
+	ble_aux_address = open('/aux.txt').read()
+	scan_response = Advertisement()
+	scan_response.complete_name = ble.name
+	scan_response.short_name = ble.name
+	scan_response.appearance = 961
+	ble.start_advertising(ble_advertisement, ble_scan_response)
+	print('advertising', hexlify(ble.address_bytes))
+	voltage_monitor = AnalogIn(board.VOLTAGE_MONITOR)
+	
+	@addloop('battery')
+	def _():
+		if everyms(1000 * 60, 'battery'):
+			# todo average RingBuffer?
+			# todo record times between percentages?
+			ble_battery_service.level = min(100, max(0, int(100.0 * voltage_monitor.value / 65536.0)))
+			print(f'battery adc={voltage_monitor.value} percent={ble_battery_service.level}')
+			red_led = (ble_battery_service.level < 10)
 
-@addloop('battery')
-def _():
-	if everyms(1000 * 60, 'battery'):
-		# todo average RingBuffer?
-		# todo record times between percentages?
-		ble_battery_service.level = min(100, max(0, int(100.0 * voltage_monitor.value / 65536.0)))
-		print(f'battery voltage={voltage_monitor.value} percent={ble_battery_service.level}')
-		red_led = (ble_battery_service.level < 10)
+	# todo blue_led.value = True when host not connected
+	# todo prevent multiple hosts from pairing
+	# todo proxy joystick, key_matrix, apds9960, etc from aux for scripts to access
+except Exception as e:
+	print(e)
+	ble = None
 
-# todo blue_led.value = True when host not connected
-# todo prevent multiple hosts from pairing
+try:
+	from adafruit_apds9960.apds9960 import APDS9960
+	apds9960 = APDS9960(i2c)
+	apds9960.enable_proximity = True
+	apds9960.enable_color = True
+	
+	proximity_packet = ProximityPacket(apds9960.proximity)
+	color_packet = ColorPacket(apds9960.color_data[0], apds9960.color_data[1], apds9960.color_data[2])
+except Exception as e:
+	print(e)
+	apds9960 = None
+
+try:
+	from adafruit_bmp280 import Adafruit_BMP280_I2C
+	bmp280 = Adafruit_BMP280_I2C(i2c)
+except Exception as e:
+	print(e)
+	bmp280 = None
+
+try:
+	from adafruit_lis3mdl import LIS3MDL
+	lis3mdl = LIS3MDL(i2c)
+except Exception as e:
+	print(e)
+	lis3mdl = None
+
+try:
+	from adafruit_sht31d import SHT31D
+	sht31d = SHT31D(i2c)
+except Exception as e:
+	print(e)
+	sht31d = None
 
 joymouse = JoyMouse(JOYSTICK0)
 
