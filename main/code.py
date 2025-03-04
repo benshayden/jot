@@ -11,13 +11,37 @@ import sys
 import time
 import usb_hid
 
+from analogio import AnalogIn
+import digitalio
+from binascii import hexlify, unhexlify
+
 from adafruit_hid import find_device
 from adafruit_hid.consumer_control import ConsumerControl
 from adafruit_hid.consumer_control_code import ConsumerControlCode
 from adafruit_hid.keyboard import Keyboard
+from adafruit_hid.keyboard_layout_us import KeyboardLayoutUS
 from adafruit_hid.keycode import Keycode
 from adafruit_hid.mouse import Mouse
-from analogio import AnalogIn
+
+from adafruit_ble import BLERadio
+from adafruit_ble.advertising import Advertisement
+from adafruit_ble.advertising.standard import ProvideServicesAdvertisement
+from adafruit_ble.services.nordic import UARTService
+from adafruit_ble.services.standard.hid import HIDService
+from adafruit_ble.services.standard.device_info import DeviceInfoService
+from adafruit_ble.services.standard import BatteryService
+from adafruit_bluefruit_connect.packet import Packet
+from adafruit_bluefruit_connect.button_packet import ButtonPacket
+from adafruit_bluefruit_connect.color_packet import ColorPacket
+from adafruit_bluefruit_connect.accelerometer_packet import AccelerometerPacket
+from adafruit_bluefruit_connect.magnetometer_packet import MagnetometerPacket
+from adafruit_bluefruit_connect.gyro_packet import GyroPacket
+from adafruit_bluefruit_connect._xyz_packet import _XYZPacket
+from adafruit_debouncer import Debouncer
+from adafruit_apds9960.apds9960 import APDS9960
+from adafruit_bmp280 import Adafruit_BMP280_I2C
+from adafruit_lis3mdl import LIS3MDL
+from adafruit_sht31d import SHT31D
 
 class ConsumerControlWrapper(ConsumerControl):
 	def release(self, *unused):
@@ -50,7 +74,8 @@ def set_layer(name):
 	KEYMAP[:] = get_layer(name)
 
 SCRIPT_CACHE = {}
-def switch(ARGS, _dir='switches'):
+__script_locals = {}
+def run_switch(ARGS, _dir='switches'):
 	globals()['ARGS'] = ARGS
 	if not ARGS or not ARGS[0]:
 		return
@@ -63,31 +88,53 @@ def switch(ARGS, _dir='switches'):
 			print(e)
 	if filename not in SCRIPT_CACHE:
 		return
+	if filename not in __script_locals:
+		__script_locals[filename] = {}
 	try:
-		exec(SCRIPT_CACHE[filename], globals(), globals())
+		exec(SCRIPT_CACHE[filename], globals(), __script_locals[filename])
 	except Exception as e:
 		print(e)
 
-def command(ARGS):
-	switch(ARGS, _dir='commands')
+def run_command(ARGS):
+	run_switch(ARGS, _dir='commands')
 
+class CommandLineInterface:
+	def __init__(self):
+		self._block = ''
+		self._block_callback = None
+	
+	def read_block(self, callback):
+		self._block_callback = callback
 
-SERIAL_BLOCK_CALLBACK = None
-SERIAL_BLOCK = ''
-def read_block(callback):
-	global SERIAL_BLOCK_CALLBACK
-	SERIAL_BLOCK_CALLBACK = callback
+	def loop(self):
+		# If a command is entered on Serial, exec it.
+		# https://webserial.io/
+		if supervisor.runtime.serial_bytes_available:
+			serial_bytes = sys.stdin.read(supervisor.runtime.serial_bytes_available)
+			if self._block_callback:
+				self._block += serial_bytes
+				if self._block.endswith('\n\n') or self._block.endswith('\r\n\r\n'):
+					try:
+						self._block_callback(self._block)
+					except Exception as e:
+						print(e)
+					self._block = ''
+					self._block_callback = None
+			else:
+				run_command(serial_bytes.strip().split())
+
+cli = CommandLineInterface()
 
 _TICKS_PERIOD = const(1<<29)
 _TICKS_MAX = const(_TICKS_PERIOD-1)
 _TICKS_HALFPERIOD = const(_TICKS_PERIOD//2)
 
 def ticks_add(ticks, delta):
-    "Add a delta to a base number of ticks, performing wraparound at 2**29ms."
+    # Add a delta to a base number of ticks, performing wraparound at 2**29ms.
     return (ticks + delta) % _TICKS_PERIOD
 
 def ticks_diff(ticks1, ticks2):
-    "Compute the signed difference between two ticks values, assuming that they are within 2**28 ticks"
+    # Compute the signed difference between two ticks values, assuming that they are within 2**28 ticks
     diff = (ticks1 - ticks2) & _TICKS_MAX
     diff = ((diff + _TICKS_HALFPERIOD) & _TICKS_MAX) - _TICKS_HALFPERIOD
     return diff
@@ -104,13 +151,24 @@ def everyms(ms, usage):
 Interval = collections.namedtuple('Interval', ('min', 'max'))
 
 class JoyStick:
-	def __init__(self, xpin, xneg, xpos, ypin, yneg, ypos):
-		self.xin = xpin
-		self.xneg = xneg
-		self.xpos = xpos
-		self.yin = ypin
-		self.yneg = yneg
-		self.ypos = ypos
+	def __init__(self, xpin, xneg, xpos, ypin, yneg, ypos, window_ms=50):
+		self._xpin = xpin
+		self._xneg = xneg
+		self._xpos = xpos
+		self._ypin = ypin
+		self._yneg = yneg
+		self._ypos = ypos
+		self._tick = 0
+		self._x = RingBuffer(capacity=window_ms, init=0.0)
+		self._y = RingBuffer(capacity=window_ms, init=0.0)
+
+	@property
+	def x(self) -> float:
+		return sum(self._x) / len(self._x)
+
+	@property
+	def y(self) -> float:
+		return sum(self._y) / len(self._y)
 
 	def _norm(self, val, neg, pos):
 		if neg.min <= val <= neg.max:
@@ -120,9 +178,11 @@ class JoyStick:
 		return 0.0
 	
 	def loop(self):
-		# returns x,y where x and y are in [-1.0, 1.0]
-		return self._norm(self.xin.value, self.xneg, self.xpos), self._norm(self.yin.value, self.yneg, self.ypos)
-	
+		now = supervisor.ticks_ms()
+		if ticks_diff(now, self._tick) > 0:
+			self._tick = now
+			self._x(self._norm(self._xpin.value, self._xneg, self._xpos))
+			self._y(self._norm(self._ypin.value, self._yneg, self._ypos))
 
 class JoyMouse:
 	def __init__(self, joystick, ms=50, speed=0.1):
@@ -131,23 +191,17 @@ class JoyMouse:
 		self.speed = speed
 		self._x = 0.0
 		self._y = 0.0
-		self._samples = 0
 	
 	def loop(self):
-		if everyms(1, id(self) - 1):
-			xnorm, ynorm = self._joystick.loop()
-			self._x += xnorm
-			self._y += ynorm
-			self._samples += 1
-			if everyms(self.ms, id(self)):
-				dx, self._x = self._buf(self._x)
-				dy, self._y = self._buf(self._y)
-				self._samples = 0
-				mouse.move(dx, dy)
+		self._joystick.loop()
+		if everyms(self.ms, id(self)):
+			dx, self._x = self._buf(self._x + self._joystick.x)
+			dy, self._y = self._buf(self._y + self._joystick.y)
+			mouse.move(dx, dy)
 	
 	def _buf(self, n):
-		whole, frac = divmod(self.speed * n * 127.0 / self._samples, 1.0)
-		return min(127, max(-127, int(whole))) & 0xff, frac * self._samples / 127.0
+		whole, frac = divmod(self.speed * n * 127.0, 1.0)
+		return min(127, max(-127, int(whole))) & 0xff, (frac / 127.0) / self.speed
 
 
 class Gamepad:
@@ -157,11 +211,6 @@ class Gamepad:
 		self._joystick0 = joystick0
 		self._joystick1 = joystick1
 		self.ms = ms
-		self._x0 = 0.0
-		self._y0 = 0.0
-		self._x1 = 0.0
-		self._y1 = 0.0
-		self._samples = 0
 		self._wait()
 
 	def _wait(self):
@@ -181,25 +230,17 @@ class Gamepad:
 		self._send()
 
 	def loop(self):
-		if everyms(1, id(self) - 1):
-			x0, y0 = self._joystick0.loop()
-			self._x0 += x0
-			self._y0 += y0
-			x1, y1 = self._joystick1.loop()
-			self._x1 += x1
-			self._y1 += y1
-			self._samples += 1
-			if everyms(self.ms, id(self)):
-				self._report[3] = self._round(self._x0)
-				self._report[4] = self._round(self._y0)
-				self._report[5] = self._round(self._x1)
-				self._report[6] = self._round(self._y1)
+		if everyms(self.ms, id(self)):
+			prevjoys = tuple(self._report[3:7])
+			nextjoys = (
+				self._round(self._joystick0.x),
+				self._round(self._joystick0.y),
+				self._round(self._joystick1.x),
+				self._round(self._joystick1.y),
+			)
+			if nextjoys != prevjoys:
+				self._report[3:7] = nextjoys
 				self._send()
-				self._x0 = 0.0
-				self._y0 = 0.0
-				self._x1 = 0.0
-				self._y1 = 0.0
-				self._samples = 0
 
 	def _round(self, n):
 		return min(127, max(-127, round(127.0 * n / self.samples))) & 0xff
@@ -287,7 +328,7 @@ def runloops():
 	for name in bad:
 		removeloop(name)
 
-addloop('loop', lambda: command(['loop']))
+addloop('loop', lambda: run_command(['loop']))
 
 neopixel = neopixel.NeoPixel(board.NEOPIXEL, 1)
 
@@ -298,15 +339,15 @@ A3 = AnalogIn(board.A3)
 JOYSTICK0 = JoyStick(A0, Interval(0.0, 32750.0), Interval(32780.0, 65535.0), A1, Interval(0.0, 32750.0), Interval(32780.0, 65535.0))
 JOYSTICK1 = JoyStick(A2, Interval(0.0, 32750.0), Interval(32780.0, 65535.0), A3, Interval(0.0, 32750.0), Interval(32780.0, 65535.0))
 
-_event = keypad.Event()
+keypad_event = keypad.Event()
 event = None
-KEYMATRIX = keypad.KeyMatrix(
+key_matrix = keypad.KeyMatrix(
 	columns_to_anodes=True,
 	column_pins=(board.D5, board.D6, board.D7, board.D8, board.D9, board.D10),
 	row_pins=(board.D2, board.D3, board.D4, board.SCK, board.MISO, board.MOSI),
 	debounce_threshold=2,
 )
-print('key_count=' + str(KEYMATRIX.key_count))
+print('key_count=' + str(key_matrix.key_count))
 pressed_switches = set()
 
 _switch_hist = {}
@@ -344,38 +385,75 @@ RELEASE = FakeEvent(False)
 
 #for d in usb_hid.devices: print('device ' + str(d.usage_page) + ' ' + str(d.usage))
 
-keyboard = Keyboard(usb_hid.devices)
-consumer = ConsumerControlWrapper(usb_hid.devices)
-mouse = Mouse(usb_hid.devices)
-gamepad = Gamepad(usb_hid.devices, JOYSTICK0, JOYSTICK1)
+if hasattr(board, 'BLUE_LED'):
+	blue_led = digitalio.DigitalInOut(board.BLUE_LED)
+	blue_led.direction = digitalio.Direction.OUTPUT
+else:
+	blue_led = None
+if hasattr(board, 'RED_LED'):
+	red_led = digitalio.DigitalInOut(board.RED_LED)
+	red_led.direction = digitalio.Direction.OUTPUT
+else:
+	red_led = None
+
+keyboard = usb_keyboard = Keyboard(usb_hid.devices)
+keyboard_layout = usb_keyboard_layout = KeyboardLayoutUS(usb_keyboard)
+consumer = usb_consumer = ConsumerControlWrapper(usb_hid.devices)
+mouse = usb_mouse = Mouse(usb_hid.devices)
+gamepad = usb_gamepad = Gamepad(usb_hid.devices, JOYSTICK0, JOYSTICK1)
+
+ble_hid = HIDService()
+ble_keyboard = Keyboard(ble_hid.devices)
+ble_keyboard_layout = KeyboardLayoutUS(ble_keyboard)
+ble_consumer = ConsumerControlWrapper(ble_hid.devices)
+ble_mouse = Mouse(ble_hid.devices)
+ble_gamepad = Gamepad(ble_hid.devices, JOYSTICK0, JOYSTICK1)
+ble_device_info_service = DeviceInfoService(
+	software_revision='2025-03-03',
+	manufacturer='bsh',
+	model_number='jot',
+)
+ble_battery_service = BatteryService()
+ble_uart_service = UARTService()
+ble_advertisement = ProvideServicesAdvertisement(ble_hid, ble_uart_service, ble_device_info_service, ble_battery_service)
+ble_advertisement.appearance = 961 # Keyboard
+ble = BLERadio()
+ble.name = 'jot'
+ble_advertisement.complete_name = ble.name
+ble_aux_address = open('/aux.txt').read()
+scan_response = Advertisement()
+scan_response.complete_name = 'jot'
+scan_response.short_name = 'jot'
+scan_response.appearance = 961
+ble.start_advertising(ble_advertisement, ble_scan_response)
+print('advertising', hexlify(ble.address_bytes))
+voltage_monitor = AnalogIn(board.VOLTAGE_MONITOR)
+
+@addloop('battery')
+def _():
+	if everyms(1000 * 60, 'battery'):
+		# todo average RingBuffer?
+		ble_battery_service.level = min(100, max(0, int(100.0 * voltage_monitor.value / 65536.0)))
+		red_led = (ble_battery_service.level < 10)
+
+# todo blue_led.value = True when host not connected
+# todo prevent multiple hosts from pairing
+
 joymouse = JoyMouse(JOYSTICK0)
 
 set_layer('default')
-command(['setup'])
+run_command(['setup'])
 
 while True:
 	event = None
-	if KEYMATRIX.events.get_into(_event) and 0 <= _event.key_number < len(KEYMAP):
-		event = _event
+	if key_matrix.events.get_into(keypad_event) and 0 <= keypad_event.key_number < len(KEYMAP):
+		event = keypad_event
+		switch = KEYMAP[event.key_number]
 		if event.pressed:
-			pressed_switches.add(KEYMAP[event.key_number])
-		elif KEYMAP[event.key_number] in pressed_switches:
-			pressed_switches.remove(KEYMAP[event.key_number])
-		switch(KEYMAP[event.key_number])
-		log(event.timestamp, event.pressed, KEYMAP[event.key_number])
-	# If a command is entered on Serial, exec it.
-	# https://webserial.io/
-	if supervisor.runtime.serial_bytes_available:
-		serial_bytes = sys.stdin.read(supervisor.runtime.serial_bytes_available)
-		if SERIAL_BLOCK_CALLBACK:
-			SERIAL_BLOCK += serial_bytes
-			if SERIAL_BLOCK.endswith('\n\n') or SERIAL_BLOCK.endswith('\r\n\r\n'):
-				try:
-					SERIAL_BLOCK_CALLBACK(SERIAL_BLOCK)
-				except Exception as e:
-					print(e)
-				SERIAL_BLOCK = ''
-				SERIAL_BLOCK_CALLBACK = None
-		else:
-			command(serial_bytes.strip().split())
+			pressed_switches.add(switch)
+		elif switch in pressed_switches:
+			pressed_switches.remove(switch)
+		run_switch(switch)
+		log(event.timestamp, event.pressed, switch)
+	cli.loop()
 	runloops()
