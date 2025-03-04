@@ -454,17 +454,16 @@ try:
 	)
 	ble_battery_service = BatteryService()
 	ble_uart_service = UARTService()
-	ble_advertisement = ProvideServicesAdvertisement(ble_hid, ble_uart_service, ble_device_info_service, ble_battery_service)
+	ble_advertisement = ProvideServicesAdvertisement(ble_hid, ble_device_info_service, ble_battery_service)
 	ble_advertisement.appearance = 961 # Keyboard
 	ble_advertisement.complete_name = ble.name
-	ble_aux_address = open('/aux.txt').read()
 	scan_response = Advertisement()
 	scan_response.complete_name = ble.name
 	scan_response.short_name = ble.name
 	scan_response.appearance = 961
 	ble.start_advertising(ble_advertisement, ble_scan_response)
 	print('advertising', hexlify(ble.address_bytes))
-	voltage_monitor = AnalogIn(board.VOLTAGE_MONITOR)
+	voltage_monitor = AnalogIn(board.VOLTAGE_MONITOR) if hasattr(board, 'VOLTAGE_MONITOR') else None
 	
 	@addloop('battery')
 	def _():
@@ -475,9 +474,38 @@ try:
 			print(f'battery adc={voltage_monitor.value} percent={ble_battery_service.level}')
 			red_led = (ble_battery_service.level < 10)
 
-	# todo blue_led.value = True when host not connected
-	# todo prevent multiple hosts from pairing
-	# todo proxy joystick, key_matrix, apds9960, etc from aux for scripts to access
+	ble_aux_address = open('/aux.txt').read()
+	aux_connection = None
+	@addloop('aux')
+	def _():
+		if aux_connection is None and everyms(100, 'ble_aux'):
+			for ad in ble.start_scan(ProvideServicesAdvertisement):
+				if hexlify(ad.address.address_bytes) == ble_aux_address:
+					aux_connection = ble.connect(ad)
+					aux_connection.pair()
+					print("Connected")
+	                break
+			ble.stop_scan()
+		if aux_connection and everyms(10, 'ble_aux'):
+			try:
+				received = aux_connection[UARTService].in_waiting
+			except Exception as e:
+				received = False
+				aux_connection = None
+			if received:
+				packet = Packet.from_stream(aux_connection[UARTService])
+				print('received', packet)
+				if isinstance(packet, ButtonPacket):
+					# todo keymap etc
+					neopixel.fill((0, 0, 0) if packet.pressed else (10, 10, 10))
+				# todo proxy joystick, key_matrix, apds9960, etc from aux for scripts to access
+
+	@addloop('ble')
+	def _():
+		pass
+		# todo blue_led.value = True when host not connected
+		# todo ble.stop_advertising() when a client is paired
+		# todo ble.start_advertising(ble_advertisement, ble_scan_response) when either a host or aux are not paired
 except Exception as e:
 	print(e)
 	ble = None
