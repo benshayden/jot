@@ -105,6 +105,10 @@ def reprMagnetometerPacket(self):
 	return f'MagnetometerPacket({self._x}, {self._y}, {self._z})'
 MagnetometerPacket.__repr__ = reprMagnetometerPacket
 
+def reprColorPacket(self):
+	return f'ColorPacket({self.color})'
+ColorPacket.__repr__ = reprColorPacket
+
 class JoystickPacket(Packet):
 	_FMT_PARSE: str = "<xxffx"
 	PACKET_LENGTH: int = struct.calcsize(_FMT_PARSE)
@@ -221,11 +225,11 @@ while True:
 		except Exception as e:
 			received = False
 			paired = False
-		if received: # todo remove
+		if received:
 			packet = Packet.from_stream(uart_service)
 			print('received', packet)
-			if isinstance(packet, ButtonPacket):
-				neopixel.fill((0, 0, 0) if packet.pressed else (10, 10, 10))
+			if isinstance(packet, ColorPacket):
+				neopixel.fill(packet.color)
 		if key_matrix.events.get_into(key_event):
 			button_packet._button = ord(0x80 + key_event.key_number)
 			button_packet._pressed = key_event.pressed
