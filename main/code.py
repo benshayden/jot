@@ -38,12 +38,12 @@ LAYER_CACHE = {}
 def get_layer(name):
 	if name in LAYER_CACHE:
 		return LAYER_CACHE[name]
-	filename = '/layers/' + name + '.txt'
+	filename = f'/layers/{name}.txt'
 	try:
 		LAYER_CACHE[name] = [tuple(line.split(' ')) for line in open(filename).read().split('\n')]
 		return LAYER_CACHE[name]
 	except Exception as e:
-		print('exception reading ' + filename)
+		print(f'exception reading {filename}')
 		print(e)
 
 KEYMAP = []
@@ -59,12 +59,12 @@ def run_switch(ARGS, _dir='switches'):
 	globals()['ARGS'] = ARGS
 	if not ARGS or not ARGS[0]:
 		return
-	filename = '/' + _dir + '/' + ARGS[0] + '.py'
+	filename = f'/{_dir}/{ARGS[0]}.py'
 	if filename not in SCRIPT_CACHE:
 		try:
 			SCRIPT_CACHE[filename] = compile(open(filename).read(), filename, 'exec')
 		except Exception as e:
-			print('exception loading ' + filename)
+			print(f'exception loading {filename}')
 			print(e)
 	if filename not in SCRIPT_CACHE:
 		return
@@ -328,7 +328,7 @@ key_matrix = keypad.KeyMatrix(
 	row_pins=(board.D2, board.D3, board.D4, board.SCK, board.MISO, board.MOSI),
 	debounce_threshold=2,
 )
-print('key_count=' + str(key_matrix.key_count))
+print(f'key_count={key_matrix.key_count}')
 pressed_switches = set()
 
 _switch_hist = {}
