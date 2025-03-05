@@ -1,3 +1,13 @@
+import board
+import collections
+import neopixel
+import keypad
+import struct
+import supervisor
+from digitalio import DigitalInOut, Direction, Pull
+from analogio import AnalogIn
+from binascii import hexlify, unhexlify
+from time import sleep
 from adafruit_ble import BLERadio
 from adafruit_ble.advertising.standard import ProvideServicesAdvertisement
 from adafruit_ble.services.nordic import UARTService
@@ -8,20 +18,15 @@ from adafruit_bluefruit_connect.accelerometer_packet import AccelerometerPacket
 from adafruit_bluefruit_connect.magnetometer_packet import MagnetometerPacket
 from adafruit_bluefruit_connect.gyro_packet import GyroPacket
 from adafruit_bluefruit_connect._xyz_packet import _XYZPacket
-import board
-import neopixel
-import keypad
-import supervisor
 from adafruit_debouncer import Debouncer
-from digitalio import DigitalInOut, Direction, Pull
-from analogio import AnalogIn
-from binascii import hexlify, unhexlify
-from time import sleep
-from adafruit_ble.services.standard.device_info import DeviceInfoService, BatteryService
+from adafruit_ble.services.standard import BatteryService
+from adafruit_ble.services.standard.device_info import DeviceInfoService
 from adafruit_apds9960.apds9960 import APDS9960
 from adafruit_bmp280 import Adafruit_BMP280_I2C
 from adafruit_lis3mdl import LIS3MDL
 from adafruit_sht31d import SHT31D
+
+Interval = collections.namedtuple('Interval', ('min', 'max'))
 
 class RingBuffer:
 	def __init__(self, capacity=100, init=None):
@@ -73,11 +78,11 @@ class JoyStick:
 
 	@property
 	def x(self) -> float:
-		return sum(self._x) / len(self._x)
+		return sum(self._x) / len(self._x) if len(self._x) else 0.0
 
 	@property
 	def y(self) -> float:
-		return sum(self._y) / len(self._y)
+		return sum(self._y) / len(self._y) if len(self._y) else 0.0
 
 	def _norm(self, val, neg, pos):
 		if neg.min <= val <= neg.max:
@@ -133,6 +138,27 @@ class JoystickPacket(Packet):
 		return f'JoystickPacket({self._x}, {self._y})'
 JoystickPacket.register_packet_type()
 
+class ProximityPacket(Packet):
+	_FMT_PARSE: str = '<xxfx'
+	PACKET_LENGTH: int = struct.calcsize(_FMT_PARSE)
+	_FMT_CONSTRUCT: str = '<2sf'
+	_TYPE_HEADER: bytes = b'!P'
+
+	def __init__(self, proximity: float):
+		self.proximity = proximity
+
+	def to_bytes(self) -> bytes:
+		partial_packet = struct.pack(
+				self._FMT_CONSTRUCT,
+				self._TYPE_HEADER,
+				self.proximity,
+		)
+		return self.add_checksum(partial_packet)
+
+	def __repr__(self):
+		return f'ProximityPacket({self.proximity})'
+ProximityPacket.register_packet_type()
+
 _TICKS_PERIOD = const(1<<29)
 _TICKS_MAX = const(_TICKS_PERIOD-1)
 _TICKS_HALFPERIOD = const(_TICKS_PERIOD//2)
@@ -187,7 +213,7 @@ apds9960 = APDS9960(i2c)
 apds9960.enable_proximity = True
 apds9960.enable_color = True
 proximity_packet = ProximityPacket(apds9960.proximity)
-color_packet = ColorPacket(apds9960.color_data[0], apds9960.color_data[1], apds9960.color_data[2])
+color_packet = ColorPacket(apds9960.color_data[:3])
 bmp280 = Adafruit_BMP280_I2C(i2c)
 lis3mdl = LIS3MDL(i2c)
 magnetometer_packet = MagnetometerPacket(lis3mdl.magnetic[0], lis3mdl.magnetic[1], lis3mdl.magnetic[2])
