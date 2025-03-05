@@ -52,7 +52,9 @@ LAYER_NAME = 'default'
 def set_layer(name):
 	global LAYER_NAME
 	LAYER_NAME = name
-	KEYMAP[:] = get_layer(name)
+	keymap = get_layer(name)
+	if keymap:
+		KEYMAP[:] = keymap
 
 SCRIPT_CACHE = {}
 __script_locals = {}
@@ -327,7 +329,7 @@ keypad_event = keypad.Event()
 event = None
 key_matrix = keypad.KeyMatrix(
 	columns_to_anodes=True,
-	column_pins=(board.D13, board.D12, board.D11, board.D10, board.D9, board.D6),
+	column_pins=(board.D12, board.D11, board.D10, board.D9, board.D6, board.D5),
 	row_pins=(board.D2, board.TX, board.RX),
 	debounce_threshold=2,
 )
@@ -489,11 +491,7 @@ try:
 	ble_advertisement = ProvideServicesAdvertisement(ble_hid, ble_device_info_service, ble_battery_service)
 	ble_advertisement.appearance = 961 # Keyboard
 	ble_advertisement.complete_name = ble.name
-	scan_response = Advertisement()
-	scan_response.complete_name = ble.name
-	scan_response.short_name = ble.name
-	scan_response.appearance = 961
-	ble.start_advertising(ble_advertisement, ble_scan_response)
+	ble.start_advertising(ble_advertisement)
 	print('advertising', hexlify(ble.address_bytes))
 	voltage_monitor = AnalogIn(board.VOLTAGE_MONITOR) if hasattr(board, 'VOLTAGE_MONITOR') else None
 	
