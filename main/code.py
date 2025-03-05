@@ -10,8 +10,8 @@ import struct
 import supervisor
 import sys
 import time
+import traceback
 import usb_hid
-
 from analogio import AnalogIn
 import digitalio
 from binascii import hexlify, unhexlify
@@ -45,7 +45,7 @@ def get_layer(name):
 		return LAYER_CACHE[name]
 	except Exception as e:
 		print(f'exception reading {filename}')
-		print(e)
+		print('\n'.join(traceback.format_exception(e)))
 
 KEYMAP = []
 LAYER_NAME = 'default'
@@ -68,7 +68,7 @@ def run_switch(ARGS, _dir='switches'):
 			SCRIPT_CACHE[filename] = compile(open(filename).read(), filename, 'exec')
 		except Exception as e:
 			print(f'exception loading {filename}')
-			print(e)
+			print('\n'.join(traceback.format_exception(e)))
 	if filename not in SCRIPT_CACHE:
 		return
 	if filename not in __script_locals:
@@ -76,7 +76,7 @@ def run_switch(ARGS, _dir='switches'):
 	try:
 		exec(SCRIPT_CACHE[filename], globals(), __script_locals[filename])
 	except Exception as e:
-		print(e)
+		print('\n'.join(traceback.format_exception(e)))
 
 def run_command(ARGS):
 	run_switch(ARGS, _dir='commands')
@@ -100,7 +100,7 @@ class CommandLineInterface:
 					try:
 						self._block_callback(self._block)
 					except Exception as e:
-						print(e)
+						print('\n'.join(traceback.format_exception(e)))
 					self._block = ''
 					self._block_callback = None
 			else:
@@ -308,7 +308,7 @@ def runloops():
 		try:
 			LOOPS[name]()
 		except Exception as e:
-			print(e)
+			print('\n'.join(traceback.format_exception(e)))
 			bad.append(name)
 	for name in bad:
 		removeloop(name)
@@ -346,9 +346,10 @@ try:
 			continue
 		_switch_hist[line[comma + 1:]] = int(line[:comma])
 except Exception as e:
-	print(e)
+	print('\n'.join(traceback.format_exception(e)))
 
 def flush_switch_hist():
+	global _switch_hist_count
 	if _switch_hist_count < 100:
 		return
 	with open('/hist.txt', 'w') as f:
@@ -524,6 +525,7 @@ try:
 	aux_connection = None
 	@addloop('aux')
 	def _():
+		global aux_connection
 		if aux_connection is None and everyms(100, 'ble_aux'):
 			for ad in ble.start_scan(ProvideServicesAdvertisement):
 				if hexlify(ad.address.address_bytes) == ble_aux_address:
@@ -558,7 +560,7 @@ try:
 		# todo ble.stop_advertising() when a client is paired
 		# todo ble.start_advertising(ble_advertisement, ble_scan_response) when either a host or aux are not paired
 except Exception as e:
-	print(e)
+	print('\n'.join(traceback.format_exception(e)))
 	ble = None
 	ble_keyboard = None
 	ble_mouse = None
@@ -575,28 +577,28 @@ try:
 	print('proximity', apds9960.proximity)
 	print('color', apds9960.color_data)
 except Exception as e:
-	print(e)
+	print('\n'.join(traceback.format_exception(e)))
 	apds9960 = None
 
 try:
 	from adafruit_bmp280 import Adafruit_BMP280_I2C
 	bmp280 = Adafruit_BMP280_I2C(i2c)
 except Exception as e:
-	print(e)
+	print('\n'.join(traceback.format_exception(e)))
 	bmp280 = None
 
 try:
 	from adafruit_lis3mdl import LIS3MDL
 	lis3mdl = LIS3MDL(i2c)
 except Exception as e:
-	print(e)
+	print('\n'.join(traceback.format_exception(e)))
 	lis3mdl = None
 
 try:
 	from adafruit_sht31d import SHT31D
 	sht31d = SHT31D(i2c)
 except Exception as e:
-	print(e)
+	print('\n'.join(traceback.format_exception(e)))
 	sht31d = None
 
 joymouse = JoyMouse(JOYSTICK0)
