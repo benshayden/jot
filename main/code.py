@@ -327,8 +327,8 @@ keypad_event = keypad.Event()
 event = None
 key_matrix = keypad.KeyMatrix(
 	columns_to_anodes=True,
-	column_pins=(board.D5, board.D6, board.D7, board.D8, board.D9, board.D10),
-	row_pins=(board.D2, board.D3, board.D4, board.SCK, board.MISO, board.MOSI),
+	column_pins=(board.D13, board.D12, board.D11, board.D10, board.D9, board.D6),
+	row_pins=(board.D2, board.TX, board.RX),
 	debounce_threshold=2,
 )
 print(f'key_count={key_matrix.key_count}')
