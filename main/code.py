@@ -425,11 +425,11 @@ try:
 	GyroPacket.__repr__ = reprGyroPacket
 	
 	class JoystickPacket(Packet):
-		_FMT_PARSE: str = "<xxffx"
+		_FMT_PARSE: str = '<xxffx'
 		PACKET_LENGTH: int = struct.calcsize(_FMT_PARSE)
 		# _FMT_CONSTRUCT doesn't include the trailing checksum byte.
-		_FMT_CONSTRUCT: str = "<2sff"
-		_TYPE_HEADER: bytes = b"!J"
+		_FMT_CONSTRUCT: str = '<2sff'
+		_TYPE_HEADER: bytes = b'!J'
 	
 		def __init__(self, x: float, y: float):
 			self._x = x
@@ -531,8 +531,8 @@ try:
 				if hexlify(ad.address.address_bytes) == ble_aux_address:
 					aux_connection = ble.connect(ad)
 					aux_connection.pair()
-					print("Connected")
-	                break
+					print('Connected')
+					break
 			ble.stop_scan()
 		if aux_connection and everyms(10, 'ble_aux'):
 			try:
