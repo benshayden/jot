@@ -6,6 +6,7 @@ import math
 import microcontroller
 import neopixel
 import os
+import struct
 import supervisor
 import sys
 import time
@@ -144,11 +145,11 @@ class JoyStick:
 
 	@property
 	def x(self) -> float:
-		return sum(self._x) / len(self._x)
+		return sum(self._x) / len(self._x) if len(self._x) else 0.0
 
 	@property
 	def y(self) -> float:
-		return sum(self._y) / len(self._y)
+		return sum(self._y) / len(self._y) if len(self._y) else 0.0
 
 	def _norm(self, val, neg, pos):
 		if neg.min <= val <= neg.max:
@@ -210,6 +211,8 @@ class Gamepad:
 		self._send()
 
 	def loop(self):
+		self._joystick0.loop()
+		self._joystick1.loop()
 		if everyms(self.ms, id(self)):
 			prevjoys = tuple(self._report[3:7])
 			nextjoys = (
@@ -445,6 +448,27 @@ try:
 			return f'JoystickPacket({self._x}, {self._y})'
 	JoystickPacket.register_packet_type()
 	
+	class ProximityPacket(Packet):
+		_FMT_PARSE: str = '<xxfx'
+		PACKET_LENGTH: int = struct.calcsize(_FMT_PARSE)
+		_FMT_CONSTRUCT: str = '<2sf'
+		_TYPE_HEADER: bytes = b'!P'
+		
+		def __init__(self, proximity: float):
+			self.proximity = proximity
+		
+		def to_bytes(self) -> bytes:
+			partial_packet = struct.pack(
+					self._FMT_CONSTRUCT,
+					self._TYPE_HEADER,
+					self.proximity,
+			)
+			return self.add_checksum(partial_packet)
+		
+		def __repr__(self):
+			return f'ProximityPacket({self.proximity})'
+	ProximityPacket.register_packet_type()
+	
 	gamepad_descriptor = b'' # todo try to read this from usb_gamepad
 	
 	ble = BLERadio()
@@ -454,7 +478,7 @@ try:
 	ble_keyboard_layout = KeyboardLayoutUS(ble_keyboard)
 	ble_consumer = ConsumerControlWrapper(ble_hid.devices)
 	ble_mouse = Mouse(ble_hid.devices)
-	# todo ble_gamepad = Gamepad(ble_hid.devices, JOYSTICK0, JOYSTICK1)
+	ble_gamepad = None  # todo Gamepad(ble_hid.devices, JOYSTICK0, JOYSTICK1)
 	ble_device_info_service = DeviceInfoService(
 		software_revision='2025-03-03',
 		manufacturer='bsh',
@@ -482,6 +506,22 @@ try:
 			print(f'battery adc={voltage_monitor.value} percent={ble_battery_service.level}')
 			red_led = (ble_battery_service.level < 10)
 
+	class AuxJoystick:
+		def __init__(self):
+			self.x = 0
+			self.y = 0
+
+		def loop(self):
+			pass
+
+	ble_aux_joystick = AuxJoystick()
+
+	class AuxAPDS9960:
+		def __init__(self):
+			self.proximity = 0
+			self.color = (0, 0, 0)
+	ble_aux_apds9960 = AuxAPDS9960()
+
 	ble_aux_address = open('/aux.txt').read()
 	aux_connection = None
 	@addloop('aux')
@@ -506,7 +546,12 @@ try:
 				if isinstance(packet, ButtonPacket):
 					# todo keymap etc
 					neopixel.fill((0, 0, 0) if packet.pressed else (10, 10, 10))
-				# todo proxy joystick, key_matrix, apds9960, etc from aux for scripts to access
+				elif isinstance(packet, JoystickPacket):
+					ble_aux_joystick.x = packet.x
+					ble_aux_joystick.y = packet.y
+				elif isinstance(packet, ProximityPacket):
+					ble_aux_apds9960.proximity = packet.proximity
+				# todo proxy key_matrix, apds9960, etc from aux for scripts to access
 
 	@addloop('ble')
 	def _():
@@ -517,6 +562,11 @@ try:
 except Exception as e:
 	print(e)
 	ble = None
+	ble_keyboard = None
+	ble_mouse = None
+	ble_consumer = None
+	ble_gamepad = None
+	ble_aux_joystick = None
 
 try:
 	from adafruit_apds9960.apds9960 import APDS9960
@@ -524,8 +574,8 @@ try:
 	apds9960.enable_proximity = True
 	apds9960.enable_color = True
 	
-	proximity_packet = ProximityPacket(apds9960.proximity)
-	color_packet = ColorPacket(apds9960.color_data[0], apds9960.color_data[1], apds9960.color_data[2])
+	print('proximity', apds9960.proximity)
+	print('color', apds9960.color_data)
 except Exception as e:
 	print(e)
 	apds9960 = None
