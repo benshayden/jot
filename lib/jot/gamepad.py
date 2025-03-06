@@ -1,6 +1,5 @@
 import time
 from adafruit_hid import find_device
-from jot import tasks
 
 REPORT_DESCRIPTOR = bytes((
   0x05, 0x01,  # Usage Page (Generic Desktop Ctrls)
@@ -32,40 +31,38 @@ class Gamepad:
 	def __init__(self, devices, joystick0, joystick1, name='gamepad', ms=50):
 		self._device = find_device(devices, usage_page=1, usage=5)
 		self._report = bytearray(7)
-		self._joystick0 = joystick0
-		self._joystick1 = joystick1
+		self.joystick0 = joystick0
+		self.joystick1 = joystick1
 		self.ms = ms
-		self._wait()
-    tasks.add(name=name, ms=ms)(self.loop)
-
-	def _wait(self):
-		for attempt in range(50):
+	
+	def wait(self, attempts=100, seconds=0.01):
+		for attempt in range(attempts):
 			try:
 				self._send()
 				break
 			except OSError:
-				time.sleep(0.01)
-
+				time.sleep(seconds)
+	
 	def press(self, code):
 		self._report[int(code / 8)] |= 1 << (code % 8)
 		self._send()
-
+	
 	def release(self, code):
 		self._report[int(code / 8)] &= 0xff ^ (1 << (code % 8))
 		self._send()
-
+	
 	def loop(self):
-    prevjoys = tuple(self._report[3:7])
-    nextjoys = (
-      self._round(self._joystick0.x),
-      self._round(self._joystick0.y),
-      self._round(self._joystick1.x),
-      self._round(self._joystick1.y),
-    )
-    if nextjoys != prevjoys:
-      self._report[3:7] = nextjoys
-      self._send()
-
+		prevjoys = tuple(self._report[3:7])
+		nextjoys = (
+			self._round(self.joystick0.x),
+			self._round(self.joystick0.y),
+			self._round(self.joystick1.x),
+			self._round(self.joystick1.y),
+		)
+		if nextjoys != prevjoys:
+			self._report[3:7] = nextjoys
+			self._send()
+	
 	def _round(self, n):
 		return min(127, max(-127, round(127.0 * n / self.samples))) & 0xff
 	
