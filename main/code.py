@@ -536,10 +536,8 @@ try:
 			elif isinstance(packet, ProximityPacket):
 				ble_aux_apds9960.proximity = packet.proximity
 	
-	# CircuitPython in aux cannot connect to large advertisements such as hid,
-	# so after the host pairs with the ble_hid_advertisement,
-	# then advertise ble_uart_advertisement until aux connects,
-	# then stop advertising.
+	# CircuitPython in aux cannot connect to large advertisements such as hid+uart,
+	# so advertise uart for aux separately from advertising hid.
 	ble_uart_advertisement = ProvideServicesAdvertisement(ble_uart_service)
 	ble_uart_advertisement.appearance = 960 # generic hid
 	ble_uart_advertisement.complete_name = ble.name
@@ -548,28 +546,34 @@ try:
 	
 	@addloop('ble', ms=10)
 	def _():
+		global keyboard, keyboard_layout, mouse, gamepad, consumer, _ble_advertising, _blue_led_tick
 		now = supervisor.ticks_ms()
 		paired = len([c for c in ble.connections if c.paired])
-		if _ble_advertising == ble_hid_advertisement:
-			# When a client pairs while advertising hid, assume it's a friendly laptop, and start advertising uart.
-			# If it isn't a friendly laptop, then you should figure it out quickly when you type and don't see what you're typing on the laptop, unless it's a MITM.
+		if _ble_advertising == ble_uart_advertisement:
+			if blue_led and ticks_diff(now, _blue_led_tick) >= 250:
+				_blue_led_tick = now
+				blue_led.value = !blue_led.value
+			# When a client pairs while advertising uart, assume it's aux for now, and stop advertising.
+			# todo wait for aux to say the password before trusting anything else it says.
 			if paired == 1:
-				ble.start_advertising(ble_uart_advertisement)
-				_ble_advertising = ble_uart_advertisement
-				print('advertising uart from', hexlify(ble.address_bytes))
+				ble.start_advertising(ble_hid_advertisement)
+				_ble_advertising = ble_hid_advertisement
+				print('advertising hid from', hexlify(ble.address_bytes))
+		if _ble_advertising == ble_hid_advertisement:
 			if blue_led and ticks_diff(now, _blue_led_tick) >= 500:
 				_blue_led_tick = now
 				blue_led.value = !blue_led.value
-		if _ble_advertising == ble_uart_advertisement:
-			# When a client pairs while advertising uart, assume it's aux for now, and stop advertising.
-			# todo wait for aux to say the password before trusting anything else it says.
+			# When a client pairs while advertising hid, assume it's a friendly laptop, and start advertising uart.
+			# If it isn't a friendly laptop, then you should figure it out quickly when you type and don't see what you're typing on the laptop, unless it's a MITM.
 			if paired == 2:
+				keyboard = ble_keyboard
+				keyboard_layout = ble_keyboard_layout
+				mouse = ble_mouse
+				gamepad = ble_gamepad
+				consumer = ble_consumer
 				ble.stop_advertising()
 				_ble_advertising = None
 				print('stopped advertising')
-			if blue_led and ticks_diff(now, _blue_led_tick) >= 200:
-				_blue_led_tick = now
-				blue_led.value = !blue_led.value
 		if _ble_advertising is None:
 			if blue_led:
 				blue_led.value = True
@@ -578,9 +582,14 @@ try:
 			if len(ble.connections) != 2:
 				for c in ble.connections:
 					c.disconnect()
-				ble.start_advertising(ble_hid_advertisement)
-				_ble_advertising = ble_hid_advertisement
-				print('advertising hid from', hexlify(ble.address_bytes))
+				keyboard = usb_keyboard
+				keyboard_layout = usb_keyboard_layout
+				mouse = usb_mouse
+				gamepad = usb_gamepad
+				consumer = usb_consumer
+				ble.start_advertising(ble_uart_advertisement)
+				_ble_advertising = ble_uart_advertisement
+				print('advertising uart from', hexlify(ble.address_bytes))
 except Exception as e:
 	print('\n'.join(traceback.format_exception(e)))
 	ble = None
