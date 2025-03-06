@@ -557,7 +557,7 @@ try:
 				ble.start_advertising(ble_uart_advertisement)
 				_ble_advertising = ble_uart_advertisement
 				print('advertising uart from', hexlify(ble.address_bytes))
-			if ticks_diff(now, _blue_led_tick) >= 500:
+			if blue_led and ticks_diff(now, _blue_led_tick) >= 500:
 				_blue_led_tick = now
 				blue_led.value = !blue_led.value
 		if _ble_advertising == ble_uart_advertisement:
@@ -567,11 +567,12 @@ try:
 				ble.stop_advertising()
 				_ble_advertising = None
 				print('stopped advertising')
-			if ticks_diff(now, _blue_led_tick) >= 200:
+			if blue_led and ticks_diff(now, _blue_led_tick) >= 200:
 				_blue_led_tick = now
 				blue_led.value = !blue_led.value
 		if _ble_advertising is None:
-			blue_led.value = True
+			if blue_led:
+				blue_led.value = True
 			# There doesn't seem to be a way to identify connections from this end.
 			# When either client disconnects, assume it's aux, disconnect everything, start over.
 			if len(ble.connections) != 2:
