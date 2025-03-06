@@ -501,7 +501,8 @@ try:
 			# todo record times between percentages?
 			ble_battery_service.level = min(100, max(0, int(100.0 * voltage_monitor.value / 65536.0)))
 			print(f'battery adc={voltage_monitor.value} percent={ble_battery_service.level}')
-			red_led = (ble_battery_service.level < 10)
+			if red_led:
+				red_led.value = (ble_battery_service.level < 10)
 
 	class AuxJoystick:
 		def __init__(self):
