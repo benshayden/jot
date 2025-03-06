@@ -488,12 +488,10 @@ try:
 		model_number=ble.name,
 	)
 	ble_battery_service = BatteryService()
-	ble_uart_service = UARTService()
-	ble_advertisement = ProvideServicesAdvertisement(ble_hid, ble_device_info_service, ble_battery_service)
-	ble_advertisement.appearance = 961 # Keyboard
-	ble_advertisement.complete_name = ble.name
-	ble.start_advertising(ble_advertisement)
-	print('advertising', hexlify(ble.address_bytes))
+	ble_hid_advertisement = ProvideServicesAdvertisement(ble_hid, ble_device_info_service, ble_battery_service)
+	ble_hid_advertisement.appearance = 961 # Keyboard
+	ble_hid_advertisement.complete_name = ble.name
+
 	voltage_monitor = AnalogIn(board.VOLTAGE_MONITOR) if hasattr(board, 'VOLTAGE_MONITOR') else None
 	
 	@addloop('battery')
@@ -521,44 +519,67 @@ try:
 			self.color = (0, 0, 0)
 	ble_aux_apds9960 = AuxAPDS9960()
 
+	ble_uart_service = UARTService()
 	ble_aux_address = open('/aux.txt').read()
-	aux_connection = None
 	@addloop('aux')
 	def _():
-		global aux_connection
-		if aux_connection is None and everyms(100, 'ble_aux'):
-			for ad in ble.start_scan(ProvideServicesAdvertisement):
-				if hexlify(ad.address.address_bytes) == ble_aux_address:
-					aux_connection = ble.connect(ad)
-					aux_connection.pair()
-					print('Connected')
-					break
-			ble.stop_scan()
-		if aux_connection and everyms(10, 'ble_aux'):
-			try:
-				received = aux_connection[UARTService].in_waiting
-			except Exception as e:
-				received = False
-				aux_connection = None
-			if received:
-				packet = Packet.from_stream(aux_connection[UARTService])
-				print('received', packet)
-				if isinstance(packet, ButtonPacket):
-					# todo keymap etc
-					neopixel.fill((0, 0, 0) if packet.pressed else (10, 10, 10))
-				elif isinstance(packet, JoystickPacket):
-					ble_aux_joystick.x = packet.x
-					ble_aux_joystick.y = packet.y
-				elif isinstance(packet, ProximityPacket):
-					ble_aux_apds9960.proximity = packet.proximity
-				# todo proxy key_matrix, apds9960, etc from aux for scripts to access
-
-	@addloop('ble')
+		# todo wait for aux to say the magic word before trusting anything else it says.
+		if ble_uart_service.in_waiting:
+			packet = Packet.from_stream(ble_uart_service)
+			print('received', packet)
+			if isinstance(packet, ButtonPacket):
+				# todo keymap etc
+				neopixel.fill((0, 0, 0) if packet.pressed else (10, 10, 10))
+			elif isinstance(packet, JoystickPacket):
+				ble_aux_joystick.x = packet.x
+				ble_aux_joystick.y = packet.y
+			elif isinstance(packet, ProximityPacket):
+				ble_aux_apds9960.proximity = packet.proximity
+	
+	# CircuitPython in aux cannot connect to large advertisements such as hid,
+	# so after the host pairs with the ble_hid_advertisement,
+	# then advertise ble_uart_advertisement until aux connects,
+	# then stop advertising.
+	ble_uart_advertisement = ProvideServicesAdvertisement(ble_uart_service)
+	ble_uart_advertisement.appearance = 960 # generic hid
+	ble_uart_advertisement.complete_name = ble.name
+	_blue_led_tick = 0
+	_ble_advertising = None
+	
+	@addloop('ble', ms=10)
 	def _():
-		pass
-		# todo blue_led.value = True when host not connected
-		# todo ble.stop_advertising() when a client is paired
-		# todo ble.start_advertising(ble_advertisement, ble_scan_response) when either a host or aux are not paired
+		now = supervisor.ticks_ms()
+		paired = len([c for c in ble.connections if c.paired])
+		if _ble_advertising == ble_hid_advertisement:
+			# When a client pairs while advertising hid, assume it's a friendly laptop, and start advertising uart.
+			# If it isn't a friendly laptop, then you should figure it out quickly when you type and don't see what you're typing on the laptop, unless it's a MITM.
+			if paired == 1:
+				ble.start_advertising(ble_uart_advertisement)
+				_ble_advertising = ble_uart_advertisement
+				print('advertising uart from', hexlify(ble.address_bytes))
+			if ticks_diff(now, _blue_led_tick) >= 500:
+				_blue_led_tick = now
+				blue_led.value = !blue_led.value
+		if _ble_advertising == ble_uart_advertisement:
+			# When a client pairs while advertising uart, assume it's aux for now, and stop advertising.
+			# todo wait for aux to say the password before trusting anything else it says.
+			if paired == 2:
+				ble.stop_advertising()
+				_ble_advertising = None
+				print('stopped advertising')
+			if ticks_diff(now, _blue_led_tick) >= 200:
+				_blue_led_tick = now
+				blue_led.value = !blue_led.value
+		if _ble_advertising is None:
+			blue_led.value = True
+			# There doesn't seem to be a way to identify connections from this end.
+			# When either client disconnects, assume it's aux, disconnect everything, start over.
+			if len(ble.connections) != 2:
+				for c in ble.connections:
+					c.disconnect()
+				ble.start_advertising(ble_hid_advertisement)
+				_ble_advertising = ble_hid_advertisement
+				print('advertising hid from', hexlify(ble.address_bytes))
 except Exception as e:
 	print('\n'.join(traceback.format_exception(e)))
 	ble = None
@@ -567,6 +588,7 @@ except Exception as e:
 	ble_consumer = None
 	ble_gamepad = None
 	ble_aux_joystick = None
+	ble_aux_apds9960 = None
 
 try:
 	from adafruit_apds9960.apds9960 import APDS9960
