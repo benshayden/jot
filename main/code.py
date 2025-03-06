@@ -169,17 +169,17 @@ class JoyStick:
 
 class JoyMouse:
 	def __init__(self, joystick, ms=50, speed=0.1):
-		self._joystick = joystick
+		self.joystick = joystick
 		self.ms = ms
 		self.speed = speed
 		self._x = 0.0
 		self._y = 0.0
 	
 	def loop(self):
-		self._joystick.loop()
+		self.joystick.loop()
 		if everyms(self.ms, id(self)):
-			dx, self._x = self._buf(self._x + self._joystick.x)
-			dy, self._y = self._buf(self._y + self._joystick.y)
+			dx, self._x = self._buf(self._x + self.joystick.x)
+			dy, self._y = self._buf(self._y + self.joystick.y)
 			mouse.move(dx, dy)
 	
 	def _buf(self, n):
@@ -334,6 +334,16 @@ key_matrix = keypad.KeyMatrix(
 	debounce_threshold=2,
 )
 print(f'key_count={key_matrix.key_count}')
+
+class SyntheticEvent:
+	def __init__(self, pressed=False, timestamp=0, key_number=0):
+		self.pressed = pressed
+		self.timestamp = timestamp
+		self.key_number = key_number
+
+PRESS = SyntheticEvent(True)
+RELEASE = SyntheticEvent(False)
+
 pressed_switches = set()
 
 _switch_hist = {}
@@ -366,12 +376,6 @@ def _():
 	if everyms(1000 * 60 * 10, 'flush_switch_hist'):
 		flush_switch_hist()
 
-FakeEvent = collections.namedtuple('FakeEvent', ('pressed',))
-PRESS = FakeEvent(True)
-RELEASE = FakeEvent(False)
-
-#for d in usb_hid.devices: print('device ' + str(d.usage_page) + ' ' + str(d.usage))
-
 if hasattr(board, 'BLUE_LED'):
 	blue_led = digitalio.DigitalInOut(board.BLUE_LED)
 	blue_led.direction = digitalio.Direction.OUTPUT
@@ -384,6 +388,8 @@ else:
 	red_led = None
 
 i2c = board.I2C() if hasattr(board, 'I2C') else None
+
+for d in usb_hid.devices: print('usb device ' + str(d.usage_page) + ' ' + str(d.usage))
 
 keyboard = usb_keyboard = Keyboard(usb_hid.devices)
 keyboard_layout = usb_keyboard_layout = KeyboardLayoutUS(usb_keyboard)
@@ -477,6 +483,9 @@ try:
 	ble = BLERadio()
 	ble.name = 'jot'
 	ble_hid = HIDService(DEFAULT_HID_DESCRIPTOR + gamepad_descriptor)
+	
+	for d in ble_hid.devices: print('ble device ' + str(d.usage_page) + ' ' + str(d.usage))
+
 	ble_keyboard = Keyboard(ble_hid.devices)
 	ble_keyboard_layout = KeyboardLayoutUS(ble_keyboard)
 	ble_consumer = ConsumerControlWrapper(ble_hid.devices)
