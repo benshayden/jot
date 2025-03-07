@@ -4,6 +4,7 @@ import neopixel
 import keypad
 import struct
 import supervisor
+import traceback
 from digitalio import DigitalInOut, Direction, Pull
 from analogio import AnalogIn
 from binascii import hexlify, unhexlify
@@ -17,10 +18,7 @@ from adafruit_bluefruit_connect.color_packet import ColorPacket
 from adafruit_bluefruit_connect.accelerometer_packet import AccelerometerPacket
 from adafruit_bluefruit_connect.magnetometer_packet import MagnetometerPacket
 from adafruit_bluefruit_connect.gyro_packet import GyroPacket
-from adafruit_bluefruit_connect._xyz_packet import _XYZPacket
 from adafruit_debouncer import Debouncer
-from adafruit_ble.services.standard import BatteryService
-from adafruit_ble.services.standard.device_info import DeviceInfoService
 from adafruit_apds9960.apds9960 import APDS9960
 from adafruit_bmp280 import Adafruit_BMP280_I2C
 from adafruit_lis3mdl import LIS3MDL
@@ -115,11 +113,11 @@ def reprColorPacket(self):
 ColorPacket.__repr__ = reprColorPacket
 
 class JoystickPacket(Packet):
-	_FMT_PARSE: str = "<xxffx"
+	_FMT_PARSE: str = '<xxffx'
 	PACKET_LENGTH: int = struct.calcsize(_FMT_PARSE)
 	# _FMT_CONSTRUCT doesn't include the trailing checksum byte.
-	_FMT_CONSTRUCT: str = "<2sff"
-	_TYPE_HEADER: bytes = b"!J"
+	_FMT_CONSTRUCT: str = '<2sff'
+	_TYPE_HEADER: bytes = b'!J'
 
 	def __init__(self, x: float, y: float):
 		self._x = x
@@ -141,6 +139,7 @@ JoystickPacket.register_packet_type()
 class ProximityPacket(Packet):
 	_FMT_PARSE: str = '<xxfx'
 	PACKET_LENGTH: int = struct.calcsize(_FMT_PARSE)
+	# _FMT_CONSTRUCT doesn't include the trailing checksum byte.
 	_FMT_CONSTRUCT: str = '<2sf'
 	_TYPE_HEADER: bytes = b'!P'
 
@@ -164,32 +163,22 @@ _TICKS_MAX = const(_TICKS_PERIOD-1)
 _TICKS_HALFPERIOD = const(_TICKS_PERIOD//2)
 
 def ticks_add(ticks, delta):
-	"Add a delta to a base number of ticks, performing wraparound at 2**29ms."
+	# Add a delta to a base number of ticks, performing wraparound at 2**29ms.
 	return (ticks + delta) % _TICKS_PERIOD
 
 def ticks_diff(ticks1, ticks2):
-	"Compute the signed difference between two ticks values, assuming that they are within 2**28 ticks"
+	# Compute the signed difference between two ticks values, assuming that they are within 2**28 ticks
 	diff = (ticks1 - ticks2) & _TICKS_MAX
 	diff = ((diff + _TICKS_HALFPERIOD) & _TICKS_MAX) - _TICKS_HALFPERIOD
 	return diff
 
-device_info_service = DeviceInfoService(
-	software_revision='2025-03-02',
-	manufacturer='bsh',
-	model_number='_jot',
-)
-battery_service = BatteryService()
 neopixel = neopixel.NeoPixel(board.NEOPIXEL, 1)
 ble = BLERadio()
-print('my address', hexlify(ble.address_bytes))
-main_address = open('/mainaddr.txt').read()
 ble.name = '_jot'
-uart_service = UARTService()
-advertisement = ProvideServicesAdvertisement(uart_service, device_info_service, battery_service)
-advertisement.complete_name = ble.name
-print('advertising', hexlify(ble.address_bytes))
-ble.start_advertising(advertisement)
-paired = False
+if ble.advertising:
+	ble.stop_advertising()
+main_address = open('/main.txt', 'rb').read()
+
 _switch = DigitalInOut(board.SWITCH)
 _switch.direction = Direction.INPUT
 _switch.pull = Pull.UP
@@ -197,8 +186,8 @@ switch = Debouncer(_switch)
 key_event = keypad.Event()
 key_matrix = keypad.KeyMatrix(
 	columns_to_anodes=True,
-	column_pins=(board.D13, board.D12, board.D11, board.D10, board.D9, board.D6),
-	row_pins=(board.D5, board.RX, board.TX),
+	column_pins=(board.D12, board.D11, board.D10, board.D9, board.D6, board.D5),
+	row_pins=(board.D2, board.RX, board.TX),
 	debounce_threshold=2,
 )
 button_packet = ButtonPacket('1', True)
@@ -228,29 +217,16 @@ accelerometer_packet = AccelerometerPacket(lsm6ds.acceleration[0], lsm6ds.accele
 gyro_packet = GyroPacket(lsm6ds.gyro[0], lsm6ds.gyro[1], lsm6ds.gyro[2])
 
 while True:
-	if ble.connected and not paired:
-		for connection in ble.connections:
-			connection_address = hexlify(connection._bleio_connection.address)
-			if connection_address == main_address:
-				connection.pair()
-				print('paired with main')
-				paired = True
-				ble.stop_advertising()
-			else:
-				print('disconnecting', connection_address)
-				connection.disconnect()
-	if paired:
+	if ble.connections and ble.connections[0] and ble.connections[0].connected and ble.connections[0].paired and ble.connections[0][UARTService]:
+		uart_service = ble.connections[0][UARTService]
 		switch.update()
 		if switch.rose or switch.fell: # todo remove
-			print('sending switch', switch.value)
 			button_packet._pressed = switch.value
 			uart_service.write(button_packet.to_bytes())
-			print('sent switch', switch.value)
-		try: # todo remove
+		try:
 			received = uart_service.in_waiting
 		except Exception as e:
 			received = False
-			paired = False
 		if received:
 			packet = Packet.from_stream(uart_service)
 			print('received', packet)
@@ -260,14 +236,21 @@ while True:
 			button_packet._button = ord(0x80 + key_event.key_number)
 			button_packet._pressed = key_event.pressed
 			uart_service.write(button_packet.to_bytes())
-			print('sent', button_packet)
-		# todo joystick_packet.write()
-		# todo proximity_packet.write()
-		# todo color_packet.write()
-		# todo magnetometer_packet.write()
-		# todo accelerometer_packet.write()
-		# todo gyro_packet.write()
-	elif not ble.advertising:
-		print('advertising', hexlify(ble.address_bytes))
-		ble.start_advertising(advertisement)
-	sleep(0.01)
+		# todo uart_service.write(joystick_packet.to_bytes())
+		# todo uart_service.write(proximity_packet.to_bytes())
+		# todo uart_service.write(color_packet.to_bytes())
+		# todo uart_service.write(magnetometer_packet.to_bytes())
+		# todo uart_service.write(accelerometer_packet.to_bytes())
+		# todo uart_service.write(gyro_packet.to_bytes())
+	else:
+		for ad in ble.start_scan(ProvideServicesAdvertisement):
+			ad_address = hexlify(ad.address.address_bytes)
+			if ad_address == main_address:
+				try:
+					connection = ble.connect(ad.address)
+					if not connection.paired:
+						connection.pair()
+					ble.stop_scan()
+				except Exception as e:
+					print('\n'.join(traceback.format_exception(e)))
+		print('connected to main')
