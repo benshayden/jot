@@ -411,7 +411,6 @@ try:
 	from adafruit_bluefruit_connect.accelerometer_packet import AccelerometerPacket
 	from adafruit_bluefruit_connect.magnetometer_packet import MagnetometerPacket
 	from adafruit_bluefruit_connect.gyro_packet import GyroPacket
-	from adafruit_bluefruit_connect._xyz_packet import _XYZPacket
 	
 	def reprButtonPacket(self):
 		return f'ButtonPacket({self.button}, {self.pressed})'
@@ -478,14 +477,12 @@ try:
 			return f'ProximityPacket({self.proximity})'
 	ProximityPacket.register_packet_type()
 	
-	gamepad_descriptor = b'' # todo try to read this from usb_gamepad
+	gamepad_descriptor = b'' # todo from jot.gamepad import Gamepad
 	
 	ble = BLERadio()
 	ble.name = 'jot'
 	ble_hid = HIDService(DEFAULT_HID_DESCRIPTOR + gamepad_descriptor)
-	
 	for d in ble_hid.devices: print('ble device ' + str(d.usage_page) + ' ' + str(d.usage))
-
 	ble_keyboard = Keyboard(ble_hid.devices)
 	ble_keyboard_layout = KeyboardLayoutUS(ble_keyboard)
 	ble_consumer = ConsumerControlWrapper(ble_hid.devices)
@@ -500,16 +497,42 @@ try:
 	ble_hid_advertisement = ProvideServicesAdvertisement(ble_hid, ble_device_info_service, ble_battery_service)
 	ble_hid_advertisement.appearance = 961 # Keyboard
 	ble_hid_advertisement.complete_name = ble.name
-
-	voltage_monitor = AnalogIn(board.VOLTAGE_MONITOR) if hasattr(board, 'VOLTAGE_MONITOR') else None
 	
-	@addloop('battery')
+	@addloop('hid mode', ms=1000)
 	def _():
-		if everyms(1000 * 60, 'battery'):
-			# todo average RingBuffer?
+		global keyboard, keyboard_layout, mouse, gamepad, consumer
+		use_usb = (len([c for c in ble.connections if c.paired]) < 2)
+		#use_usb = supervisor.runtime.usb_connected
+		if use_usb and keyboard != usb_keyboard:
+			keyboard = usb_keyboard
+			keyboard_layout = usb_keyboard_layout
+			mouse = usb_mouse
+			gamepad = usb_gamepad
+			consumer = usb_consumer
+			print('using usb hid')
+		elif not use_usb and keyboard != ble_keyboard:
+			keyboard = ble_keyboard
+			keyboard_layout = ble_keyboard_layout
+			mouse = ble_mouse
+			gamepad = ble_gamepad
+			consumer = ble_consumer
+			print('using ble hid')
+	
+	voltage_monitor = AnalogIn(board.VOLTAGE_MONITOR) if hasattr(board, 'VOLTAGE_MONITOR') else None
+	if voltage_monitor:
+		_battery_voltage = RingBuffer(100)
+		@addloop('raw battery', ms=600)
+		def _():
+			_battery_voltage(voltage_monitor.value * 3.6 * 2.0 / 65536.0)
+		
+		@addloop('battery', ms=60000)
+		def _():
+			avg_v = sum(_battery_voltage) / len(_battery_voltage)
+			# lipo batteries max out at 4.2V, and the regulator shuts off at 3.2V.
+			norm_v = (avg_v - 3.2) / (4.2 - 3.2)
 			# todo record times between percentages?
-			ble_battery_service.level = min(100, max(0, int(100.0 * voltage_monitor.value / 65536.0)))
-			print(f'battery adc={voltage_monitor.value} percent={ble_battery_service.level}')
+			ble_battery_service.level = min(100, max(0, int(100.0 * norm_v)))
+			print(f'battery voltage={avg_v} percent={ble_battery_service.level}')
 			if red_led:
 				red_led.value = (ble_battery_service.level < 10)
 
@@ -551,12 +574,10 @@ try:
 	ble_uart_advertisement = ProvideServicesAdvertisement(ble_uart_service)
 	ble_uart_advertisement.appearance = 960 # generic hid
 	ble_uart_advertisement.complete_name = ble.name
-	_blue_led_tick = 0
-	_ble_advertising = None
 	
 	@addloop('ble', ms=10)
 	def _():
-		global keyboard, keyboard_layout, mouse, gamepad, consumer, _ble_advertising, _blue_led_tick
+		global _ble_advertising, _blue_led_tick
 		now = supervisor.ticks_ms()
 		paired = len([c for c in ble.connections if c.paired])
 		if _ble_advertising == ble_uart_advertisement:
@@ -576,11 +597,6 @@ try:
 			# When a client pairs while advertising hid, assume it's a friendly laptop, and start advertising uart.
 			# If it isn't a friendly laptop, then you should figure it out quickly when you type and don't see what you're typing on the laptop, unless it's a MITM.
 			if paired == 2:
-				keyboard = ble_keyboard
-				keyboard_layout = ble_keyboard_layout
-				mouse = ble_mouse
-				gamepad = ble_gamepad
-				consumer = ble_consumer
 				ble.stop_advertising()
 				_ble_advertising = None
 				print('stopped advertising')
@@ -592,11 +608,6 @@ try:
 			if len(ble.connections) != 2:
 				for c in ble.connections:
 					c.disconnect()
-				keyboard = usb_keyboard
-				keyboard_layout = usb_keyboard_layout
-				mouse = usb_mouse
-				gamepad = usb_gamepad
-				consumer = usb_consumer
 				ble.start_advertising(ble_uart_advertisement)
 				_ble_advertising = ble_uart_advertisement
 				print('advertising uart from', hexlify(ble.address_bytes))
