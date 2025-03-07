@@ -5,13 +5,13 @@ from jot import tasks
 
 __cache = {}
 __script_locals = {}
-def run_switch(args, _dir='switches', namespace=None):
+def run_script(args, directory, namespace):
   if namespace is None:
     namespace = globals()
 	namespace['ARGS'] = args
 	if not args or not args[0]:
 		return
-	filename = f'/{_dir}/{args[0]}.py'
+	filename = f'/{directory}/{args[0]}.py'
 	if filename not in __cache:
 		try:
 			__cache[filename] = compile(open(filename).read(), filename, 'exec')
@@ -27,15 +27,13 @@ def run_switch(args, _dir='switches', namespace=None):
 	except Exception as e:
 		print('\n'.join(traceback.format_exception(e)))
 
-def run_command(args, namespace=None):
-	run_switch(args, _dir='commands', namespace=namespace)
-
 class CommandLineInterface:
-	def __init__(self, namespace=None):
-    self._namespace = namespace
+	def __init__(self, directory, namespace):
+		self._directory = directory
+		self._namespace = namespace
 		self._block = ''
 		self._block_callback = None
-    tasks.add(name='cli', ms=100)(self.loop)
+		tasks.add(name='cli', ms=100)(self.loop)
 	
 	def read_block(self, callback):
 		self._block_callback = callback
@@ -55,4 +53,4 @@ class CommandLineInterface:
 					self._block = ''
 					self._block_callback = None
 			else:
-				run_command(serial_bytes.strip().split(), namespace=self._namespace)
+				run_script(serial_bytes.strip().split(), directory=self._directory, namespace=self._namespace)
