@@ -378,6 +378,7 @@ except Exception as e:
 
 set_layer('default')
 cli.run(['setup'])
+gc.collect()
 
 while True:
 	SwitchEvent.current = None
