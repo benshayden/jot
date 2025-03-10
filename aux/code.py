@@ -1,6 +1,7 @@
 from jot import run_script, uncache_script, CommandLineInterface, Gamepad, RingBuffer, AccelerometerPacket, ButtonPacket, ColorPacket, GyroPacket, JoystickPacket, MagnetometerPacket, Packet, ProximityPacket, JoyStick, Interval
 import board
 import collections
+import gc
 import neopixel
 import keypad
 import struct
@@ -76,6 +77,7 @@ except RuntimeError:
 	lsm6ds = LSM6DS(i2c)
 accelerometer_packet = AccelerometerPacket(lsm6ds.acceleration[0], lsm6ds.acceleration[1], lsm6ds.acceleration[2])
 gyro_packet = GyroPacket(lsm6ds.gyro[0], lsm6ds.gyro[1], lsm6ds.gyro[2])
+gc.collect()
 
 while True:
 	uart_service = received = None
