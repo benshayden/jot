@@ -6,8 +6,8 @@ from jot import tasks
 __cache = {}
 __script_locals = {}
 def run_script(args, directory, namespace):
-  if namespace is None:
-    namespace = globals()
+	if namespace is None:
+		namespace = globals()
 	namespace['ARGS'] = args
 	if not args or not args[0]:
 		return
@@ -27,6 +27,9 @@ def run_script(args, directory, namespace):
 	except Exception as e:
 		print('\n'.join(traceback.format_exception(e)))
 
+def uncache_script(filename):
+	del __cache[filename]
+
 class CommandLineInterface:
 	def __init__(self, directory, namespace):
 		self._directory = directory
@@ -37,7 +40,10 @@ class CommandLineInterface:
 	
 	def read_block(self, callback):
 		self._block_callback = callback
-
+	
+	def run(self, args):
+		run_script(args, directory=self._directory, namespace=self._namespace)
+	
 	def loop(self):
 		# If a command is entered on Serial, exec it.
 		# https://webserial.io/
@@ -53,4 +59,4 @@ class CommandLineInterface:
 					self._block = ''
 					self._block_callback = None
 			else:
-				run_script(serial_bytes.strip().split(), directory=self._directory, namespace=self._namespace)
+				self.run(serial_bytes.strip().split())
