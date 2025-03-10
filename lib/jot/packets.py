@@ -1,3 +1,4 @@
+import struct
 from adafruit_bluefruit_connect.packet import Packet
 from adafruit_bluefruit_connect.button_packet import ButtonPacket
 from adafruit_bluefruit_connect.color_packet import ColorPacket
@@ -8,6 +9,22 @@ from adafruit_bluefruit_connect.gyro_packet import GyroPacket
 def reprButtonPacket(self):
 	return f'ButtonPacket({self.button}, {self.pressed})'
 ButtonPacket.__repr__ = reprButtonPacket
+
+def setButtonPacketButton(self, button):
+	self._button = button
+ButtonPacket.button = ButtonPacket.button.setter(setButtonPacketButton)
+
+def setButtonPacketPressed(self, pressed):
+	self._pressed = pressed
+ButtonPacket.pressed = ButtonPacket.pressed.setter(setButtonPacketPressed)
+
+def getButtonPacketIndex(self):
+	return ord(self.button) - 65
+ButtonPacket.index = property(getButtonPacketIndex)
+
+def setButtonPacketIndex(self, index):
+	self._button = chr(65 + index)
+ButtonPacket.index = ButtonPacket.index.setter(setButtonPacketIndex)
 
 def reprAccelerometerPacket(self):
 	return f'AccelerometerPacket({self._x}, {self._y}, {self._z})'
