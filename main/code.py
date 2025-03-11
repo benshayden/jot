@@ -15,7 +15,7 @@ import usb_hid
 from analogio import AnalogIn
 import digitalio
 from binascii import hexlify, unhexlify
-from jot import run_script, uncache_script, CommandLineInterface, Gamepad, RingBuffer, AccelerometerPacket, ButtonPacket, ColorPacket, GyroPacket, JoystickPacket, MagnetometerPacket, Packet, ProximityPacket, Interval, JoyStick, SwitchEvent, PRESS, RELEASE
+from jot import run_script, uncache_script, CommandLineInterface, Gamepad, RingBuffer, AccelerometerPacket, ButtonPacket, ColorPacket, GyroPacket, JoystickPacket, MagnetometerPacket, Packet, ProximityPacket, Interval, JoyStick, SwitchEvent, PRESS, RELEASE, tasks
 from adafruit_debouncer import Debouncer
 from adafruit_hid import find_device
 from adafruit_hid.consumer_control import ConsumerControl
@@ -43,29 +43,6 @@ def set_layer(name):
 	keymap_name = name
 	SwitchEvent.keymap = get_layer(name) or SwitchEvent.keymap
 
-_TICKS_PERIOD = const(1<<29)
-_TICKS_MAX = const(_TICKS_PERIOD-1)
-_TICKS_HALFPERIOD = const(_TICKS_PERIOD//2)
-
-def ticks_add(ticks, delta):
-    # Add a delta to a base number of ticks, performing wraparound at 2**29ms.
-    return (ticks + delta) % _TICKS_PERIOD
-
-def ticks_diff(ticks1, ticks2):
-    # Compute the signed difference between two ticks values, assuming that they are within 2**28 ticks
-    diff = (ticks1 - ticks2) & _TICKS_MAX
-    diff = ((diff + _TICKS_HALFPERIOD) & _TICKS_MAX) - _TICKS_HALFPERIOD
-    return diff
-
-
-EVERY_PREV_MS = {}
-def everyms(ms, usage):
-	now = supervisor.ticks_ms()
-	if usage not in EVERY_PREV_MS or ticks_diff(now, EVERY_PREV_MS[usage]) >= ms:
-		EVERY_PREV_MS[usage] = now
-		return True
-	return False
-
 SwitchEvent.run = lambda args: run_script(args, 'switches', globals())
 
 class ConsumerControlWrapper(ConsumerControl):
@@ -82,45 +59,19 @@ def por(device, code):
 class JoyMouse:
 	def __init__(self, joystick, ms=50, speed=0.1):
 		self.joystick = joystick
-		self.ms = ms
 		self.speed = speed
 		self._x = 0.0
 		self._y = 0.0
+		self.task = tasks.create(ms=ms)(self.loop)
 	
-	def loop(self):
-		self.joystick.loop()
-		if everyms(self.ms, id(self)):
-			dx, self._x = self._buf(self._x + self.joystick.x)
-			dy, self._y = self._buf(self._y + self.joystick.y)
-			mouse.move(dx, dy)
+	def loop(self, now):
+		dx, self._x = self._buf(self._x + self.joystick.x)
+		dy, self._y = self._buf(self._y + self.joystick.y)
+		mouse.move(dx, dy)
 	
 	def _buf(self, n):
 		whole, frac = divmod(self.speed * n * 127.0, 1.0)
 		return min(127, max(-127, int(whole))) & 0xff, (frac / 127.0) / self.speed
-
-LOOPS = {}
-def addloop(name, script=None):
-	if script is None:
-		def wrapper(fun):
-			LOOPS[name] = fun
-		return wrapper
-	if isinstance(script, str):
-		script = lambda _=compile(script, name, 'exec'): exec(_, globals(), globals())
-	LOOPS[name] = script
-
-def removeloop(name):
-	del LOOPS[name]
-
-def runloops():
-	bad = []
-	for name in LOOPS:
-		try:
-			LOOPS[name]()
-		except Exception as e:
-			print('\n'.join(traceback.format_exception(e)))
-			bad.append(name)
-	for name in bad:
-		removeloop(name)
 
 cli = CommandLineInterface('commands', globals())
 neopixel = neopixel.NeoPixel(board.NEOPIXEL, 1)
@@ -128,6 +79,7 @@ A0 = AnalogIn(board.A0)
 A1 = AnalogIn(board.A1)
 joystick = JoyStick(A0, Interval(0.0, 32750.0), Interval(32780.0, 65535.0), A1, Interval(0.0, 32750.0), Interval(32780.0, 65535.0))
 joymouse = JoyMouse(joystick)
+joymouse.task.enabled = False # todo remove
 
 if hasattr(board, 'BLUE_LED'):
 	blue_led = digitalio.DigitalInOut(board.BLUE_LED)
@@ -154,15 +106,25 @@ key_matrix = keypad.KeyMatrix(
 	debounce_threshold=2,
 )
 SwitchEvent.source(key_matrix, key_matrix.key_count)
+
+set_layer('default')
+@tasks.create()
+def switch_event_task(now):
+	SwitchEvent.current = None
+	switch.update()
+	if switch.rose or switch.fell:
+		SwitchEvent.dispatch(switch.fell, 0, switch)
+	if SwitchEvent.current is None and key_matrix.events.get_into(keypad_event):
+		SwitchEvent.dispatch(keypad_event.pressed, keypad_event.key_number, key_matrix)
+
+tasks.create(ms=1000 * 60 * 10)(lambda now: SwitchEvent.flush_histogram())
+
 i2c = board.I2C() if hasattr(board, 'I2C') else None
 
 class AuxJoystick:
 	def __init__(self):
 		self.x = 0
 		self.y = 0
-
-	def loop(self):
-		pass
 
 aux_joystick = AuxJoystick()
 
@@ -225,14 +187,6 @@ consumer = usb_consumer = ConsumerControlWrapper(usb_hid.devices)
 mouse = usb_mouse = Mouse(usb_hid.devices)
 gamepad = usb_gamepad = Gamepad(usb_hid.devices, joystick, aux_joystick)
 
-addloop('loop', lambda: cli.run(['loop']))
-addloop('cli', lambda: cli.loop())
-
-@addloop('switch_hist')
-def _():
-	if everyms(1000 * 60 * 10, 'flush_switch_hist'):
-		SwitchEvent.flush_histogram()
-
 try:
 	from adafruit_ble import BLERadio
 	from adafruit_ble.advertising import Advertisement
@@ -262,14 +216,9 @@ try:
 	ble_hid_advertisement.complete_name = ble.name
 	SwitchEvent.source(ble_uart_service, 19)
 	
-	_hid_mode_tick = 0
-	@addloop('hid mode')
-	def _():
+	@tasks.create(ms=1000)
+	def hid_mode_task(now):
 		global keyboard, keyboard_layout, mouse, gamepad, consumer, _hid_mode_tick
-		now = supervisor.ticks_ms()
-		if ticks_diff(now, _hid_mode_tick) < 1000:
-			return
-		_hid_mode_tick = now
 		use_usb = (len([c for c in ble.connections if c.paired]) < 1)
 		#use_usb = supervisor.runtime.usb_connected
 		if use_usb and keyboard != usb_keyboard:
@@ -290,25 +239,12 @@ try:
 	voltage_monitor = AnalogIn(board.VOLTAGE_MONITOR) if hasattr(board, 'VOLTAGE_MONITOR') else None
 	if voltage_monitor:
 		_battery_voltage = RingBuffer(100)
-		_battery_raw_tick = 0
-		@addloop('raw battery')
-		def _():
-			global _battery_raw_tick
-			now = supervisor.ticks_ms()
-			if ticks_diff(now, _battery_raw_tick) < 600:
-				return
-			_battery_raw_tick = now
+		@tasks.create(ms=600)
+		def measure_battery_task(now):
 			_battery_voltage(voltage_monitor.value * 3.6 * 2.0 / 65536.0)
 
-		_battery_tick = 0
-		@addloop('battery')
-		def _():
-			global _battery_tick
-			now = supervisor.ticks_ms()
-			if ticks_diff(now, _battery_tick) < 60000:
-				return
-			_battery_tick = now
-
+		@tasks.create(ms=60000)
+		def ble_battery_service_task(now):
 			if len(_battery_voltage) < 10:
 				return
 			avg_v = sum(_battery_voltage) / len(_battery_voltage)
@@ -320,19 +256,20 @@ try:
 			if red_led:
 				red_led.value = (ble_battery_service.level < 10)
 
-	@addloop('aux')
-	def _():
+	@tasks.create()
+	def ble_uart_receive_task(now):
 		# todo wait for aux to say the magic word before trusting anything else it says.
-		if ble_uart_service.in_waiting:
-			packet = Packet.from_stream(ble_uart_service)
-			print('received', packet)
-			if isinstance(packet, ButtonPacket):
-				SwitchEvent.dispatch(packet.pressed, packet.index, ble_uart_service)
-			elif isinstance(packet, JoystickPacket):
-				aux_joystick.x = packet.x
-				aux_joystick.y = packet.y
-			elif isinstance(packet, ProximityPacket):
-				aux_apds9960.proximity = packet.proximity
+		if not ble_uart_service.in_waiting:
+			return
+		packet = Packet.from_stream(ble_uart_service)
+		print('received', packet)
+		if isinstance(packet, ButtonPacket):
+			SwitchEvent.dispatch(packet.pressed, packet.index, ble_uart_service)
+		elif isinstance(packet, JoystickPacket):
+			aux_joystick.x = packet.x
+			aux_joystick.y = packet.y
+		elif isinstance(packet, ProximityPacket):
+			aux_apds9960.proximity = packet.proximity
 	
 	# CircuitPython in aux cannot connect to large advertisements such as hid+uart,
 	# so advertise uart for aux separately from advertising hid.
@@ -342,50 +279,50 @@ try:
 
 	_ble_advertising = None
 	_blue_led_tick = 0
-	@addloop('ble')
-	def _():
+	@tasks.create()
+	def ble_advertise_task(now):
 		global _ble_advertising, _blue_led_tick
-		now = supervisor.ticks_ms()
-		if _ble_advertising == ble_uart_advertisement:
-			if blue_led and ticks_diff(now, _blue_led_tick) >= 250:
+		num_paired = 0
+		num_unpaired = 0
+		for c in ble.connections:
+			if c.paired:
+				num_paired += 1
+			else:
+				num_unpaired += 1
+		if num_paired > 1 or num_unpaired > 1:
+			for c in ble.connections:
+				c.disconnect()
+			return # wait for the next task loop
+		if num_unpaired < 1:
+			if _ble_advertising != ble_uart_advertisement:
+				ble.stop_advertising()
+				ble.start_advertising(ble_uart_advertisement)
+				_ble_advertising = ble_uart_advertisement
+				print('advertising uart from', hexlify(ble.address_bytes))
+			if blue_led and tasks.ticks_diff(now, _blue_led_tick) >= 250:
 				_blue_led_tick = now
 				blue_led.value = not blue_led.value
-			if len([c for c in ble.connections if not c.paired]) == 1:
+		elif num_paired < 1:
+			if _ble_advertising != ble_hid_advertisement:
 				ble.stop_advertising()
 				ble.start_advertising(ble_hid_advertisement)
 				_ble_advertising = ble_hid_advertisement
 				print('advertising hid from', hexlify(ble.address_bytes))
-		elif _ble_advertising == ble_hid_advertisement:
-			if blue_led and ticks_diff(now, _blue_led_tick) >= 500:
+			if blue_led and tasks.ticks_diff(now, _blue_led_tick) >= 500:
 				_blue_led_tick = now
 				blue_led.value = not blue_led.value
-			if len([c for c in ble.connections if c.paired]) == 1:
+		else:
+			if _ble_advertising != None:
+				# done!
 				ble.stop_advertising()
 				_ble_advertising = None
+				if blue_led:
+					blue_led.value = True
 				print('stopped advertising')
-		elif _ble_advertising is None:
-			if blue_led:
-				blue_led.value = True
-			if len(ble.connections) != 2:
-				# todo if there's 1 paired connection then assume it's the hid client, keep it, just advertise uart.
-				# todo if there's 1 unpaired connection then assume it's aux, keep it, just advertise hid.
-				for c in ble.connections:
-					c.disconnect()
-				ble.start_advertising(ble_uart_advertisement)
-				_ble_advertising = ble_uart_advertisement
-				print('advertising uart from', hexlify(ble.address_bytes))
 except Exception as e:
 	print('\n'.join(traceback.format_exception(e)))
 
-set_layer('default')
 cli.run(['setup'])
-gc.collect()
+cli_loop_task = tasks.create()(lambda now, args=('loop',): cli.run(args))
 
-while True:
-	SwitchEvent.current = None
-	switch.update()
-	if switch.rose or switch.fell:
-		SwitchEvent.dispatch(switch.fell, 0, switch)
-	if SwitchEvent.current is None and key_matrix.events.get_into(keypad_event):
-		SwitchEvent.dispatch(keypad_event.pressed, keypad_event.key_number, key_matrix)
-	runloops()
+tasks.start()
