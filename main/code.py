@@ -233,7 +233,7 @@ try:
 			keyboard_layout = KeyboardLayoutUS(keyboard)
 			consumer = ConsumerControlWrapper(ble_hid.devices)
 			mouse = Mouse(ble_hid.devices)
-			# todo gamepad = Gamepad(ble_hid.devices, JOYSTICK0, JOYSTICK1)
+			gamepad = Gamepad(ble_hid.devices, aux_joystick, joystick)
 			print('using ble hid')
 	
 	voltage_monitor = AnalogIn(board.VOLTAGE_MONITOR) if hasattr(board, 'VOLTAGE_MONITOR') else None
