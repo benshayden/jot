@@ -271,7 +271,6 @@ try:
 			return
 		_hid_mode_tick = now
 		use_usb = (len([c for c in ble.connections if c.paired]) < 1)
-		#use_usb = (len(ble.connections) < 1)
 		#use_usb = supervisor.runtime.usb_connected
 		if use_usb and keyboard != usb_keyboard:
 			keyboard = usb_keyboard
@@ -368,6 +367,8 @@ try:
 			if blue_led:
 				blue_led.value = True
 			if len(ble.connections) != 2:
+				# todo if there's 1 paired connection then assume it's the hid client, keep it, just advertise uart.
+				# todo if there's 1 unpaired connection then assume it's aux, keep it, just advertise hid.
 				for c in ble.connections:
 					c.disconnect()
 				ble.start_advertising(ble_uart_advertisement)
