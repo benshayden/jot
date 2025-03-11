@@ -188,6 +188,7 @@ mouse = usb_mouse = Mouse(usb_hid.devices)
 gamepad = usb_gamepad = Gamepad(usb_hid.devices, joystick, aux_joystick)
 
 try:
+	import _bleio
 	from adafruit_ble import BLERadio
 	from adafruit_ble.advertising import Advertisement
 	from adafruit_ble.advertising.standard import ProvideServicesAdvertisement
