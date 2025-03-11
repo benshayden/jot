@@ -13,7 +13,7 @@ class JoyStick:
 		self._ypos = ypos
 		self._x = RingBuffer(capacity=window_ms, init=0.0)
 		self._y = RingBuffer(capacity=window_ms, init=0.0)
-		tasks.add(name=id(self), ms=1)(self.loop)
+		self.task = tasks.create(ms=1)(self.loop)
 
 	@property
 	def x(self) -> float:
