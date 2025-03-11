@@ -1,4 +1,4 @@
-from jot import run_script, uncache_script, CommandLineInterface, Gamepad, RingBuffer, AccelerometerPacket, ButtonPacket, ColorPacket, GyroPacket, JoystickPacket, MagnetometerPacket, Packet, ProximityPacket, JoyStick, Interval
+from jot import RingBuffer, AccelerometerPacket, ButtonPacket, ColorPacket, GyroPacket, JoystickPacket, MagnetometerPacket, Packet, ProximityPacket, JoyStick, Interval, tasks
 import board
 import collections
 import gc
@@ -7,7 +7,7 @@ import keypad
 import struct
 import supervisor
 import traceback
-from digitalio import DigitalInOut, Direction, Pull
+import digitalio
 from analogio import AnalogIn
 from binascii import hexlify, unhexlify
 from time import sleep
@@ -20,20 +20,6 @@ from adafruit_bmp280 import Adafruit_BMP280_I2C
 from adafruit_lis3mdl import LIS3MDL
 from adafruit_sht31d import SHT31D
 
-_TICKS_PERIOD = const(1<<29)
-_TICKS_MAX = const(_TICKS_PERIOD-1)
-_TICKS_HALFPERIOD = const(_TICKS_PERIOD//2)
-
-def ticks_add(ticks, delta):
-	# Add a delta to a base number of ticks, performing wraparound at 2**29ms.
-	return (ticks + delta) % _TICKS_PERIOD
-
-def ticks_diff(ticks1, ticks2):
-	# Compute the signed difference between two ticks values, assuming that they are within 2**28 ticks
-	diff = (ticks1 - ticks2) & _TICKS_MAX
-	diff = ((diff + _TICKS_HALFPERIOD) & _TICKS_MAX) - _TICKS_HALFPERIOD
-	return diff
-
 neopixel = neopixel.NeoPixel(board.NEOPIXEL, 1)
 ble = BLERadio()
 ble.name = '_jot'
@@ -41,9 +27,20 @@ if ble.advertising:
 	ble.stop_advertising()
 main_address = open('/main.txt', 'rb').read()
 
-_switch = DigitalInOut(board.SWITCH)
-_switch.direction = Direction.INPUT
-_switch.pull = Pull.UP
+if hasattr(board, 'BLUE_LED'):
+	blue_led = digitalio.DigitalInOut(board.BLUE_LED)
+	blue_led.direction = digitalio.Direction.OUTPUT
+else:
+	blue_led = None
+if hasattr(board, 'RED_LED'):
+	red_led = digitalio.DigitalInOut(board.RED_LED)
+	red_led.direction = digitalio.Direction.OUTPUT
+else:
+	red_led = None
+
+_switch = digitalio.DigitalInOut(board.SWITCH)
+_switch.direction = digitalio.Direction.INPUT
+_switch.pull = digitalio.Pull.UP
 switch = Debouncer(_switch)
 key_event = keypad.Event()
 key_matrix = keypad.KeyMatrix(
@@ -55,8 +52,6 @@ key_matrix = keypad.KeyMatrix(
 button_packet = ButtonPacket('1', True)
 A0 = AnalogIn(board.A0)
 A1 = AnalogIn(board.A1)
-A2 = AnalogIn(board.A2)
-A3 = AnalogIn(board.A3)
 joystick = JoyStick(A0, Interval(0.0, 32750.0), Interval(32780.0, 65535.0), A1, Interval(0.0, 32750.0), Interval(32780.0, 65535.0))
 joystick_packet = JoystickPacket(joystick.x, joystick.y)
 i2c = board.I2C()
@@ -79,13 +74,13 @@ accelerometer_packet = AccelerometerPacket(lsm6ds.acceleration[0], lsm6ds.accele
 gyro_packet = GyroPacket(lsm6ds.gyro[0], lsm6ds.gyro[1], lsm6ds.gyro[2])
 gc.collect()
 
-while True:
-	uart_service = received = None
+@tasks.create()
+def reconnect(now):
 	try:
-		uart_service = ble.connections[0][UARTService]
-		received = uart_service.in_waiting
+		unused = ble.connections[0][UARTService].in_waiting
 	except Exception as e:
-		uart_service = None
+		if blue_led:
+			blue_led.value = False
 		try:
 			printed_scanned = set()
 			for ad in ble.start_scan(ProvideServicesAdvertisement):
@@ -97,6 +92,8 @@ while True:
 						uart_service = ble.connections[0][UARTService]
 						ble.stop_scan()
 						print('connected to main')
+						if blue_led:
+							blue_led.value = True
 					except Exception as e:
 						print('\n'.join(traceback.format_exception(e)))
 				elif ad_address not in printed_scanned:
@@ -104,26 +101,67 @@ while True:
 					printed_scanned.add(ad_address)
 		except Exception as e:
 			print('\n'.join(traceback.format_exception(e)))
-	if uart_service:
-		if received:
-			packet = Packet.from_stream(uart_service)
-			print('received', packet)
-			if isinstance(packet, ColorPacket):
-				neopixel.fill(packet.color)
-		switch.update()
-		if switch.rose or switch.fell: # todo remove
-			button_packet.index = key_matrix.key_count
-			button_packet._pressed = not switch.value
-			uart_service.write(button_packet.to_bytes())
-			print('wrote', button_packet)
-		if key_matrix.events.get_into(key_event):
-			button_packet.index = key_event.key_number
-			button_packet.pressed = key_event.pressed
-			uart_service.write(button_packet.to_bytes())
-			print('wrote', button_packet)
-		# todo uart_service.write(joystick_packet.to_bytes())
-		# todo uart_service.write(proximity_packet.to_bytes())
-		# todo uart_service.write(color_packet.to_bytes())
-		# todo uart_service.write(magnetometer_packet.to_bytes())
-		# todo uart_service.write(accelerometer_packet.to_bytes())
-		# todo uart_service.write(gyro_packet.to_bytes())
+
+def safe_get_uart_service():
+	try:
+		# in_waiting may also throw so safe that also.
+		uart_service = ble.connections[0][UARTService]
+		return uart_service, uart_service.in_waiting
+	except Exception as e:
+		# reconnect will do so soon, it's ok if the caller has no effect.
+		return None, False
+
+@tasks.create()
+def uart_receive(now):
+	uart_service, received = safe_get_uart_service()
+	if not uart_service:
+		return
+	if received:
+		packet = Packet.from_stream(uart_service)
+		print('received', packet)
+		if isinstance(packet, ColorPacket):
+			neopixel.fill(packet.color)
+
+@tasks.create(ms=7)
+def uart_send_buttons(now):
+	uart_service, received = safe_get_uart_service()
+	if not uart_service:
+		return
+	switch.update()
+	if switch.rose or switch.fell: # todo remove
+		button_packet.index = key_matrix.key_count
+		button_packet.pressed = not switch.value
+		uart_service.write(button_packet.to_bytes())
+		print('wrote', button_packet)
+	if key_matrix.events.get_into(key_event):
+		button_packet.index = key_event.key_number
+		button_packet.pressed = key_event.pressed
+		uart_service.write(button_packet.to_bytes())
+		print('wrote', button_packet)
+
+@tasks.create(ms=40)
+def uart_send_joystick(now):
+	uart_service, received = safe_get_uart_service()
+	if not uart_service:
+		return
+	newjoy = joystick.x, joystick.y
+	if abs(newjoy[0] - joystick_packet.x) > 1 or abs(newjoy[1] - joystick_packet.y) > 1:
+		joystick_packet.x = newjoy[0]
+		joystick_packet.y = newjoy[1]
+		uart_service.write(joystick_packet.to_bytes())
+
+@tasks.create(ms=10)
+def uart_send_proximity(now):
+	uart_service, received = safe_get_uart_service()
+	if not uart_service:
+		return
+	if abs(proximity_packet.proximity - apds9960.proximity) > 1:
+		proximity_packet.proximity = apds9960.proximity
+		uart_service.write(proximity_packet.to_bytes())
+
+# todo uart_service.write(color_packet.to_bytes())
+# todo uart_service.write(magnetometer_packet.to_bytes())
+# todo uart_service.write(accelerometer_packet.to_bytes())
+# todo uart_service.write(gyro_packet.to_bytes())
+
+tasks.start()
