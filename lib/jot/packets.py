@@ -38,6 +38,10 @@ def reprColorPacket(self):
 	return f'ColorPacket({self.color})'
 ColorPacket.__repr__ = reprColorPacket
 
+def setColorPacketColor(self, color):
+	self._color = color[0] & 0xff, color[1] & 0xff, color[2] & 0xff
+ColorPacket.color = ColorPacket.color.setter(setColorPacketColor)
+
 def reprGyroPacket(self):
 	return f'GyroPacket({self._x}, {self._y}, {self._z})'
 GyroPacket.__repr__ = reprGyroPacket
