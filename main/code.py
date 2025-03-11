@@ -114,7 +114,10 @@ def switch_event_task(now):
 	switch.update()
 	if switch.rose or switch.fell:
 		SwitchEvent.dispatch(switch.fell, 0, switch)
-	if SwitchEvent.current is None and key_matrix.events.get_into(keypad_event):
+		# SwitchEvent.dispatch sets SwitchEvent.current. Let other tasks observe SwitchEvent.current in this task loop.
+		# If there's also an event in key_matrix's queue, it can stay there until next task loop.
+		return
+	if key_matrix.events.get_into(keypad_event):
 		SwitchEvent.dispatch(keypad_event.pressed, keypad_event.key_number, key_matrix)
 
 tasks.create(ms=1000 * 60 * 10)(lambda now: SwitchEvent.flush_histogram())
