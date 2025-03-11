@@ -1,5 +1,6 @@
 import time
 from adafruit_hid import find_device
+from . import tasks
 
 class Gamepad:
 	DESCRIPTOR = bytes((
@@ -33,7 +34,8 @@ class Gamepad:
 		self._report = bytearray(7)
 		self.joystick0 = joystick0
 		self.joystick1 = joystick1
-		self.ms = ms
+		self.task = tasks.create(ms=ms)(self.loop)
+		self.task.enabled = False
 	
 	def wait(self, attempts=100, seconds=0.01):
 		for attempt in range(attempts):
@@ -51,7 +53,7 @@ class Gamepad:
 		self._report[int(code / 8)] &= 0xff ^ (1 << (code % 8))
 		self._send()
 	
-	def loop(self):
+	def loop(self, now):
 		prevjoys = tuple(self._report[3:7])
 		nextjoys = (
 			self._round(self.joystick0.x),
@@ -65,7 +67,6 @@ class Gamepad:
 	
 	def _round(self, n):
 		return min(127, max(-127, round(127.0 * n))) & 0xff
-
 	
 	def _send(self):
 		self._device.send_report(self._report)
