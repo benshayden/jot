@@ -201,20 +201,7 @@ try:
 	ble.name = 'jot'
 	
 	ble_hid = HIDService(DEFAULT_HID_DESCRIPTOR + Gamepad.DESCRIPTOR)
-	
 	for d in ble_hid.devices: print(f'ble device {d.usage_page} {d.usage}')
-	
-	ble_uart_service = UARTService()
-	ble_device_info_service = DeviceInfoService(
-		software_revision='2025-03-03',
-		manufacturer='bsh',
-		model_number=ble.name,
-	)
-	ble_battery_service = BatteryService()
-	ble_hid_advertisement = ProvideServicesAdvertisement(ble_hid, ble_device_info_service, ble_battery_service)
-	ble_hid_advertisement.appearance = 961 # Keyboard
-	ble_hid_advertisement.complete_name = ble.name
-	SwitchEvent.source(ble_uart_service, 19)
 	
 	@tasks.create(ms=1000)
 	def hid_mode_task(now):
@@ -236,6 +223,7 @@ try:
 			gamepad = Gamepad(ble_hid.devices, aux_joystick, joystick)
 			print('using ble hid')
 	
+	ble_battery_service = BatteryService()
 	voltage_monitor = AnalogIn(board.VOLTAGE_MONITOR) if hasattr(board, 'VOLTAGE_MONITOR') else None
 	if voltage_monitor:
 		_battery_voltage = RingBuffer(100)
@@ -255,7 +243,10 @@ try:
 			print(f'battery voltage={avg_v} percent={ble_battery_service.level}')
 			if red_led:
 				red_led.value = (ble_battery_service.level < 10)
-
+	
+	ble_uart_service = UARTService()
+	SwitchEvent.source(ble_uart_service, 19)
+	
 	@tasks.create()
 	def ble_uart_receive_task(now):
 		# todo wait for aux to say the magic word before trusting anything else it says.
@@ -271,11 +262,20 @@ try:
 		elif isinstance(packet, ProximityPacket):
 			aux_apds9960.proximity = packet.proximity
 	
+	ble_device_info_service = DeviceInfoService(
+		software_revision='2025-03-03',
+		manufacturer='bsh',
+		model_number=ble.name,
+	)
+	
 	# CircuitPython in aux cannot connect to large advertisements such as hid+uart,
 	# so advertise uart for aux separately from advertising hid.
 	ble_uart_advertisement = ProvideServicesAdvertisement(ble_uart_service)
 	ble_uart_advertisement.appearance = 960 # generic hid
 	ble_uart_advertisement.complete_name = ble.name
+	ble_hid_advertisement = ProvideServicesAdvertisement(ble_hid, ble_device_info_service, ble_battery_service)
+	ble_hid_advertisement.appearance = 961 # Keyboard
+	ble_hid_advertisement.complete_name = ble.name
 
 	_ble_advertising = None
 	_blue_led_tick = 0
