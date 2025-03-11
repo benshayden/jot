@@ -137,6 +137,7 @@ def uart_send_joystick(now):
 	joystick_packet.x = joystick.x
 	joystick_packet.y = joystick.y
 	uart_service.write(joystick_packet.to_bytes())
+uart_send_joystick.enabled = False
 
 apds9960 = APDS9960(i2c)
 apds9960.enable_proximity = True
@@ -152,6 +153,7 @@ def uart_send_proximity(now):
 		return
 	proximity_packet.proximity = apds9960.proximity
 	uart_service.write(proximity_packet.to_bytes())
+uart_send_proximity.enabled = False
 
 color_packet = ColorPacket(apds9960.color_data[:3])
 
@@ -164,6 +166,7 @@ def uart_send_color(now):
 		return
 	color_packet.color = apds9960.color_data[:3]
 	uart_service.write(color_packet.to_bytes())
+uart_send_color.enabled = False
 
 lis3mdl = LIS3MDL(i2c)
 magnetometer_packet = MagnetometerPacket(lis3mdl.magnetic[0], lis3mdl.magnetic[1], lis3mdl.magnetic[2])
@@ -181,8 +184,7 @@ def uart_send_magnetometer(now):
 		return
 	magnetometer_packet._x, magnetometer_packet._y, magnetometer_packet._z = lis3mdl.magnetic
 	uart_service.write(magnetometer_packet.to_bytes())
-
-# todo uart_service.write(magnetometer_packet.to_bytes())
+uart_send_magnetometer.enabled = False
 
 try:
 	from adafruit_lsm6ds.lsm6ds33 import LSM6DS33 as LSM6DS
@@ -201,6 +203,7 @@ def uart_send_accelerometer(now):
 	if abs(accelerometer_packet._x - lsm6ds.acceleration[0]) > 0.1 or abs(accelerometer_packet._y - lsm6ds.acceleration[1]) > 0.1 or abs(accelerometer_packet._z - lsm6ds.acceleration[2]) > 0.1:
 		accelerometer_packet._x, accelerometer_packet._y, accelerometer_packet._z = lsm6ds.acceleration
 		uart_service.write(accelerometer_packet.to_bytes())
+uart_send_accelerometer.enabled = False
 
 gyro_packet = GyroPacket(lsm6ds.gyro[0], lsm6ds.gyro[1], lsm6ds.gyro[2])
 
@@ -212,6 +215,7 @@ def uart_send_gyro(now):
 	if abs(gyro_packet._x - lsm6ds.gyro[0]) > 0.01 or abs(gyro_packet._y - lsm6ds.gyro[1]) > 0.01 or abs(gyro_packet._z - lsm6ds.gyro[2]) > 0.01:
 		gyro_packet._x, gyro_packet._y, gyro_packet._z = lsm6ds.gyro
 		uart_service.write(gyro_packet.to_bytes())
+uart_send_gyro.enabled = False
 
 gc.collect()
 
