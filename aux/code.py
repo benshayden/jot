@@ -82,14 +82,13 @@ def safe_get_uart_service():
 @tasks.create()
 def uart_receive(now):
 	uart_service, received = safe_get_uart_service()
-	if not uart_service:
+	if not uart_service or not received:
 		return
-	if received:
-		packet = Packet.from_stream(uart_service)
-		print('received', packet)
-		if isinstance(packet, ColorPacket):
-			neopixel.fill(packet.color)
-		# todo receive flags to enable/disable uart_send_gyro, etc
+	packet = Packet.from_stream(uart_service)
+	print('received', packet)
+	if isinstance(packet, ColorPacket):
+		neopixel.fill(packet.color)
+	# todo receive flags to enable/disable uart_send_gyro, etc
 
 _switch = digitalio.DigitalInOut(board.SWITCH)
 _switch.direction = digitalio.Direction.INPUT
@@ -131,10 +130,13 @@ def uart_send_joystick(now):
 	uart_service, received = safe_get_uart_service()
 	if not uart_service:
 		return
-	if abs(joystick.x - joystick_packet.x) > 0.03 or abs(joystick.y - joystick_packet.y) > 0.03:
-		joystick_packet.x = joystick.x
-		joystick_packet.y = joystick.y
-		uart_service.write(joystick_packet.to_bytes())
+	if abs(joystick.x - joystick_packet.x) < 0.03:
+		return
+	if abs(joystick.y - joystick_packet.y) < 0.03:
+		return
+	joystick_packet.x = joystick.x
+	joystick_packet.y = joystick.y
+	uart_service.write(joystick_packet.to_bytes())
 
 apds9960 = APDS9960(i2c)
 apds9960.enable_proximity = True
@@ -146,9 +148,10 @@ def uart_send_proximity(now):
 	uart_service, received = safe_get_uart_service()
 	if not uart_service:
 		return
-	if abs(proximity_packet.proximity - apds9960.proximity) > 1:
-		proximity_packet.proximity = apds9960.proximity
-		uart_service.write(proximity_packet.to_bytes())
+	if abs(proximity_packet.proximity - apds9960.proximity) < 2:
+		return
+	proximity_packet.proximity = apds9960.proximity
+	uart_service.write(proximity_packet.to_bytes())
 
 color_packet = ColorPacket(apds9960.color_data[:3])
 
@@ -157,9 +160,10 @@ def uart_send_color(now):
 	uart_service, received = safe_get_uart_service()
 	if not uart_service:
 		return
-	if color_packet.color != tuple(apds9960.color_data[:3]):
-		color_packet.color = apds9960.color_data[:3]
-		uart_service.write(color_packet.to_bytes())
+	if color_packet.color == tuple(apds9960.color_data[:3]):
+		return
+	color_packet.color = apds9960.color_data[:3]
+	uart_service.write(color_packet.to_bytes())
 
 lis3mdl = LIS3MDL(i2c)
 magnetometer_packet = MagnetometerPacket(lis3mdl.magnetic[0], lis3mdl.magnetic[1], lis3mdl.magnetic[2])
@@ -169,9 +173,14 @@ def uart_send_magnetometer(now):
 	uart_service, received = safe_get_uart_service()
 	if not uart_service:
 		return
-	if abs(magnetometer_packet._x - lis3mdl.magnetic[0]) > 0.1 or abs(magnetometer_packet._y - lis3mdl.magnetic[1]) > 0.1 or abs(magnetometer_packet._z - lis3mdl.magnetic[2]) > 0.1:
-		magnetometer_packet._x, magnetometer_packet._y, magnetometer_packet._z = lis3mdl.magnetic
-		uart_service.write(magnetometer_packet.to_bytes())
+	if abs(magnetometer_packet._x - lis3mdl.magnetic[0]) < 0.1:
+		return
+	if abs(magnetometer_packet._y - lis3mdl.magnetic[1]) < 0.1:
+		return
+	if abs(magnetometer_packet._z - lis3mdl.magnetic[2]) < 0.1:
+		return
+	magnetometer_packet._x, magnetometer_packet._y, magnetometer_packet._z = lis3mdl.magnetic
+	uart_service.write(magnetometer_packet.to_bytes())
 
 # todo uart_service.write(magnetometer_packet.to_bytes())
 
