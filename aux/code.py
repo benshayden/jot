@@ -38,41 +38,9 @@ if hasattr(board, 'RED_LED'):
 else:
 	red_led = None
 
-_switch = digitalio.DigitalInOut(board.SWITCH)
-_switch.direction = digitalio.Direction.INPUT
-_switch.pull = digitalio.Pull.UP
-switch = Debouncer(_switch)
-key_event = keypad.Event()
-key_matrix = keypad.KeyMatrix(
-	columns_to_anodes=True,
-	column_pins=(board.D12, board.D11, board.D10, board.D9, board.D6, board.D5),
-	row_pins=(board.D2, board.RX, board.TX),
-	debounce_threshold=2,
-)
-button_packet = ButtonPacket('1', True)
-A0 = AnalogIn(board.A0)
-A1 = AnalogIn(board.A1)
-joystick = JoyStick(A0, Interval(0.0, 32750.0), Interval(32780.0, 65535.0), A1, Interval(0.0, 32750.0), Interval(32780.0, 65535.0))
-joystick_packet = JoystickPacket(joystick.x, joystick.y)
 i2c = board.I2C()
-apds9960 = APDS9960(i2c)
-apds9960.enable_proximity = True
-apds9960.enable_color = True
-proximity_packet = ProximityPacket(apds9960.proximity)
-color_packet = ColorPacket(apds9960.color_data[:3])
 bmp280 = Adafruit_BMP280_I2C(i2c)
-lis3mdl = LIS3MDL(i2c)
-magnetometer_packet = MagnetometerPacket(lis3mdl.magnetic[0], lis3mdl.magnetic[1], lis3mdl.magnetic[2])
 sht31d = SHT31D(i2c)
-try:
-	from adafruit_lsm6ds.lsm6ds33 import LSM6DS33 as LSM6DS
-	lsm6ds = LSM6DS(i2c)
-except RuntimeError:
-	from adafruit_lsm6ds.lsm6ds3 import LSM6DS3 as LSM6DS
-	lsm6ds = LSM6DS(i2c)
-accelerometer_packet = AccelerometerPacket(lsm6ds.acceleration[0], lsm6ds.acceleration[1], lsm6ds.acceleration[2])
-gyro_packet = GyroPacket(lsm6ds.gyro[0], lsm6ds.gyro[1], lsm6ds.gyro[2])
-gc.collect()
 
 @tasks.create()
 def reconnect(now):
@@ -121,6 +89,20 @@ def uart_receive(now):
 		print('received', packet)
 		if isinstance(packet, ColorPacket):
 			neopixel.fill(packet.color)
+		# todo receive flags to enable/disable uart_send_gyro, etc
+
+_switch = digitalio.DigitalInOut(board.SWITCH)
+_switch.direction = digitalio.Direction.INPUT
+_switch.pull = digitalio.Pull.UP
+switch = Debouncer(_switch)
+key_event = keypad.Event()
+key_matrix = keypad.KeyMatrix(
+	columns_to_anodes=True,
+	column_pins=(board.D12, board.D11, board.D10, board.D9, board.D6, board.D5),
+	row_pins=(board.D2, board.RX, board.TX),
+	debounce_threshold=2,
+)
+button_packet = ButtonPacket('1', True)
 
 @tasks.create(ms=7)
 def uart_send_buttons(now):
@@ -139,16 +121,25 @@ def uart_send_buttons(now):
 		uart_service.write(button_packet.to_bytes())
 		print('wrote', button_packet)
 
+A0 = AnalogIn(board.A0)
+A1 = AnalogIn(board.A1)
+joystick = JoyStick(A0, Interval(0.0, 32750.0), Interval(32780.0, 65535.0), A1, Interval(0.0, 32750.0), Interval(32780.0, 65535.0))
+joystick_packet = JoystickPacket(joystick.x, joystick.y)
+
 @tasks.create(ms=40)
 def uart_send_joystick(now):
 	uart_service, received = safe_get_uart_service()
 	if not uart_service:
 		return
-	newjoy = joystick.x, joystick.y
-	if abs(newjoy[0] - joystick_packet.x) > 1 or abs(newjoy[1] - joystick_packet.y) > 1:
-		joystick_packet.x = newjoy[0]
-		joystick_packet.y = newjoy[1]
+	if abs(joystick.x - joystick_packet.x) > 0.03 or abs(joystick.y - joystick_packet.y) > 0.03:
+		joystick_packet.x = joystick.x
+		joystick_packet.y = joystick.y
 		uart_service.write(joystick_packet.to_bytes())
+
+apds9960 = APDS9960(i2c)
+apds9960.enable_proximity = True
+apds9960.enable_color = True
+proximity_packet = ProximityPacket(apds9960.proximity)
 
 @tasks.create(ms=10)
 def uart_send_proximity(now):
@@ -159,9 +150,60 @@ def uart_send_proximity(now):
 		proximity_packet.proximity = apds9960.proximity
 		uart_service.write(proximity_packet.to_bytes())
 
-# todo uart_service.write(color_packet.to_bytes())
+color_packet = ColorPacket(apds9960.color_data[:3])
+
+@tasks.create(ms=10)
+def uart_send_color(now):
+	uart_service, received = safe_get_uart_service()
+	if not uart_service:
+		return
+	if color_packet.color != tuple(apds9960.color_data[:3]):
+		color_packet.color = apds9960.color_data[:3]
+		uart_service.write(color_packet.to_bytes())
+
+lis3mdl = LIS3MDL(i2c)
+magnetometer_packet = MagnetometerPacket(lis3mdl.magnetic[0], lis3mdl.magnetic[1], lis3mdl.magnetic[2])
+
+@tasks.create(ms=10)
+def uart_send_magnetometer(now):
+	uart_service, received = safe_get_uart_service()
+	if not uart_service:
+		return
+	if abs(magnetometer_packet._x - lis3mdl.magnetic[0]) > 0.1 or abs(magnetometer_packet._y - lis3mdl.magnetic[1]) > 0.1 or abs(magnetometer_packet._z - lis3mdl.magnetic[2]) > 0.1:
+		magnetometer_packet._x, magnetometer_packet._y, magnetometer_packet._z = lis3mdl.magnetic
+		uart_service.write(magnetometer_packet.to_bytes())
+
 # todo uart_service.write(magnetometer_packet.to_bytes())
-# todo uart_service.write(accelerometer_packet.to_bytes())
-# todo uart_service.write(gyro_packet.to_bytes())
+
+try:
+	from adafruit_lsm6ds.lsm6ds33 import LSM6DS33 as LSM6DS
+	lsm6ds = LSM6DS(i2c)
+except RuntimeError:
+	from adafruit_lsm6ds.lsm6ds3 import LSM6DS3 as LSM6DS
+	lsm6ds = LSM6DS(i2c)
+
+accelerometer_packet = AccelerometerPacket(lsm6ds.acceleration[0], lsm6ds.acceleration[1], lsm6ds.acceleration[2])
+
+@tasks.create(ms=10)
+def uart_send_accelerometer(now):
+	uart_service, received = safe_get_uart_service()
+	if not uart_service:
+		return
+	if abs(accelerometer_packet._x - lsm6ds.acceleration[0]) > 0.1 or abs(accelerometer_packet._y - lsm6ds.acceleration[1]) > 0.1 or abs(accelerometer_packet._z - lsm6ds.acceleration[2]) > 0.1:
+		accelerometer_packet._x, accelerometer_packet._y, accelerometer_packet._z = lsm6ds.acceleration
+		uart_service.write(accelerometer_packet.to_bytes())
+
+gyro_packet = GyroPacket(lsm6ds.gyro[0], lsm6ds.gyro[1], lsm6ds.gyro[2])
+
+@tasks.create(ms=10)
+def uart_send_gyro(now):
+	uart_service, received = safe_get_uart_service()
+	if not uart_service:
+		return
+	if abs(gyro_packet._x - lsm6ds.gyro[0]) > 0.01 or abs(gyro_packet._y - lsm6ds.gyro[1]) > 0.01 or abs(gyro_packet._z - lsm6ds.gyro[2]) > 0.01:
+		gyro_packet._x, gyro_packet._y, gyro_packet._z = lsm6ds.gyro
+		uart_service.write(gyro_packet.to_bytes())
+
+gc.collect()
 
 tasks.start()
