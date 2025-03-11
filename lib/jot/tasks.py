@@ -1,11 +1,10 @@
 # Usage:
-# @tasker.add('demo', 16)
-# def _(now): print('60fps', now)
-# tasker.remove('demo')
-# @tasker.aor(__file__, pressed, 16)
-# def _(now): print('60fps while pressed', now)
-# tasker.start()
-# tasker.stop()
+# @tasks.create(ms=16)
+# def foo(now): print('60fps', now)
+# foo.enabled = False
+# foo.ms = 1000
+# tasks.start()
+# tasks.stop()
 
 import supervisor
 import traceback
@@ -24,48 +23,30 @@ def ticks_diff(ticks1, ticks2):
     diff = ((diff + _TICKS_HALFPERIOD) & _TICKS_MAX) - _TICKS_HALFPERIOD
     return diff
 
-_tasks = {}
+_tasks = []
 
 class Task:
 	def __init__(self, cb, ms):
+		self.enabled = True
 		self._cb = cb
-		self._ms = ms
+		self.ms = ms
 		self._tick = 0
+		_tasks.append(self)
 
 	def __call__(self, now):
-		if ticks_diff(now, self._tick) < self._ms:
-			return True
+		if not self.enabled or ticks_diff(now, self._tick) < self.ms:
+			return
 		self._tick = now
 		try:
 			self._cb(now)
-			return True
 		except Exception as e:
 			print('\n'.join(traceback.format_exception(e)))
-			return False
+			self.enabled = False
 
-def add(*, name=None, ms=0):
+def create(*, ms=0):
 	def deco(cb):
-		_tasks[name or cb.__name__] = Task(cb, ms)
+		return Task(cb, ms)
 	return deco
-
-def remove(name):
-	del _tasks[name]
-
-def aor(do_add, *, name=None, ms=0):
-	# add or remove
-	if do_add:
-		return add(name=name, ms=ms)
-	remove(name)
-	return lambda _: None
-
-def _run():
-	now = supervisor.ticks_ms()
-	bad = []
-	for name in _tasks:
-		if not _tasks[name](now):
-			bad.append(name)
-	for name in bad:
-		remove(name)
 
 running = False
 
@@ -73,7 +54,9 @@ def start():
 	global running
 	running = True
 	while running:
-		_run()
+		now = supervisor.ticks_ms()
+		for task in _tasks:
+			task(now)
 
 def stop():
 	global running
