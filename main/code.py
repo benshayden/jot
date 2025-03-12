@@ -11,6 +11,7 @@ import supervisor
 import sys
 import time
 import traceback
+import types
 import usb_hid
 from analogio import AnalogIn
 import digitalio
@@ -124,19 +125,6 @@ tasks.create(ms=1000 * 60 * 10)(lambda now: SwitchEvent.flush_histogram())
 
 i2c = board.I2C() if hasattr(board, 'I2C') else None
 
-class AuxJoystick:
-	def __init__(self):
-		self.x = 0
-		self.y = 0
-aux_joystick = AuxJoystick()
-joysticks = (aux_joystick, joystick)
-
-class AuxAPDS9960:
-	def __init__(self):
-		self.proximity = 0
-		self.color = (0, 0, 0)
-aux_apds9960 = AuxAPDS9960()
-
 try:
 	from adafruit_apds9960.apds9960 import APDS9960
 	apds9960 = APDS9960(i2c)
@@ -189,6 +177,18 @@ keyboard_layout = usb_keyboard_layout = KeyboardLayoutUS(usb_keyboard)
 consumer = usb_consumer = ConsumerControlWrapper(usb_hid.devices)
 mouse = usb_mouse = Mouse(usb_hid.devices)
 gamepad = usb_gamepad = Gamepad(usb_hid.devices, *joysticks)
+
+aux_joystick = types.SimpleNamespace()
+aux_joystick.x = aux_joystick.y = 0.0
+joysticks = (aux_joystick, joystick)
+
+aux_apds9960 = types.SimpleNamespace()
+aux_apds9960.proximity = 0
+aux_apds9960.color_data = (0, 0, 0)
+
+aux_lsm6ds = types.SimpleNamespace()
+aux_lsm6ds.gyro = (0.0, 0.0, 0.0)
+aux_lsm6ds.acceleration = (0.0, 0.0, 0.0)
 
 try:
 	import _bleio
@@ -265,6 +265,14 @@ try:
 			aux_joystick.y = packet.y
 		elif isinstance(packet, ProximityPacket):
 			aux_apds9960.proximity = packet.proximity
+		elif isinstance(packet, GyroPacket):
+			aux_lsm6ds.gyro = packet.x, packet.y, packet.z
+		elif isinstance(packet, AccelerometerPacket):
+			aux_lsm6ds.acceleration = packet.x, packet.y, packet.z
+		elif isinstance(packet, MagnetometerPacket):
+			aux_lis3mdl.magnetic = packet.x, packet.y, packet.z
+		elif isinstance(packet, ColorPacket):
+			aux_apds9960.color_data = color
 	
 	ble_device_info_service = DeviceInfoService(
 		software_revision='2025-03-03',
