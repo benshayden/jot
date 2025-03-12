@@ -128,8 +128,8 @@ class AuxJoystick:
 	def __init__(self):
 		self.x = 0
 		self.y = 0
-
 aux_joystick = AuxJoystick()
+joysticks = (aux_joystick, joystick)
 
 class AuxAPDS9960:
 	def __init__(self):
@@ -188,7 +188,7 @@ keyboard = usb_keyboard = Keyboard(usb_hid.devices)
 keyboard_layout = usb_keyboard_layout = KeyboardLayoutUS(usb_keyboard)
 consumer = usb_consumer = ConsumerControlWrapper(usb_hid.devices)
 mouse = usb_mouse = Mouse(usb_hid.devices)
-gamepad = usb_gamepad = Gamepad(usb_hid.devices, joystick, aux_joystick)
+gamepad = usb_gamepad = Gamepad(usb_hid.devices, *joysticks)
 
 try:
 	import _bleio
@@ -224,7 +224,7 @@ try:
 			keyboard_layout = KeyboardLayoutUS(keyboard)
 			consumer = ConsumerControlWrapper(ble_hid.devices)
 			mouse = Mouse(ble_hid.devices)
-			gamepad = Gamepad(ble_hid.devices, aux_joystick, joystick)
+			gamepad = Gamepad(ble_hid.devices, *joysticks)
 			print('using ble hid')
 	
 	ble_battery_service = BatteryService()
