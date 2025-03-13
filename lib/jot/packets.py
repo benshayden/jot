@@ -58,13 +58,7 @@ class JoystickPacket(Packet):
 		self.y = y
 
 	def to_bytes(self) -> bytes:
-		partial_packet = struct.pack(
-				self._FMT_CONSTRUCT,
-				self._TYPE_HEADER,
-				self.x,
-				self.y,
-		)
-		return self.add_checksum(partial_packet)
+		return self.add_checksum(struct.pack(self._FMT_CONSTRUCT, self._TYPE_HEADER, self.x, self.y))
 
 	def __repr__(self):
 		return f'JoystickPacket({self.x}, {self.y})'
@@ -81,13 +75,32 @@ class ProximityPacket(Packet):
 		self.proximity = proximity
 
 	def to_bytes(self) -> bytes:
-		partial_packet = struct.pack(
-				self._FMT_CONSTRUCT,
-				self._TYPE_HEADER,
-				self.proximity,
-		)
-		return self.add_checksum(partial_packet)
+		return self.add_checksum(struct.pack(self._FMT_CONSTRUCT, self._TYPE_HEADER, self.proximity))
 
 	def __repr__(self):
 		return f'ProximityPacket({self.proximity})'
 ProximityPacket.register_packet_type()
+
+class FeatureFlagPacket(Packet):
+    _FMT_PARSE: str = '<xxssx'
+    PACKET_LENGTH: int = struct.calcsize(_FMT_PARSE)
+    # _FMT_CONSTRUCT doesn't include the trailing checksum byte.
+    _FMT_CONSTRUCT: str = '<2sss'
+    _TYPE_HEADER: bytes = b'!F'
+
+	ACCELEROMETER = 'A'
+	GYRO = 'G'
+	MAGNETOMETER = 'M'
+	COLOR = 'C'
+	PROXIMITY = 'P'
+
+	def __init__(self, feature: str, enabled: bool):
+		self.feature = feature
+		self.enabled = enabled
+
+	def to_bytes(self) -> bytes:
+		return self.add_checksum(struct.pack(self._FMT_CONSTRUCT, self._TYPE_HEADER, self.feature, self.enabled))
+	
+	def __repr__(self):
+		return f'FeatureFlagPacket({self.feature}, {self.enabled})'
+FeatureFlagPacket.register_packet_type()
