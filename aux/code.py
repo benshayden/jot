@@ -88,7 +88,19 @@ def uart_receive(now):
 	print('received', packet)
 	if isinstance(packet, ColorPacket):
 		neopixel.fill(packet.color)
-	# todo receive flags to enable/disable uart_send_gyro, etc
+	elif isinstance(packet, FeatureFlagPacket):
+		if packet.feature == FeatureFlagPacket.ACCELEROMETER:
+			uart_send_accelerometer.enabled = packet.enabled
+		elif packet.feature == FeatureFlagPacket.GYRO:
+			uart_send_gyro.enabled = packet.enabled
+		elif packet.feature == FeatureFlagPacket.JOYSTICK:
+			uart_send_joystick.enabled = packet.enabled
+		elif packet.feature == FeatureFlagPacket.COLOR:
+			uart_send_color.enabled = packet.enabled
+		elif packet.feature == FeatureFlagPacket.MAGNETOMETER:
+			uart_send_magnetometer.enabled = packet.enabled
+		elif packet.feature == FeatureFlagPacket.PROXIMITY:
+			uart_send_proximity.enabled = packet.enabled
 
 _switch = digitalio.DigitalInOut(board.SWITCH)
 _switch.direction = digitalio.Direction.INPUT
