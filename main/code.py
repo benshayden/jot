@@ -214,6 +214,7 @@ try:
 		packet = Packet.from_stream(ble_uart_service)
 		print('received', packet)
 		if isinstance(packet, ButtonPacket):
+			# todo if SwitchEvent.current then queue this packet for next task loop so other tasks can observe both current and this packet
 			SwitchEvent.dispatch(packet.pressed, packet.index, ble_uart_service)
 		elif isinstance(packet, JoystickPacket):
 			aux_joystick.x = packet.x
