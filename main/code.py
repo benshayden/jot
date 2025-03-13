@@ -130,7 +130,6 @@ try:
 	apds9960 = APDS9960(i2c)
 	apds9960.enable_proximity = True
 	apds9960.enable_color = True
-	
 	print('proximity', apds9960.proximity)
 	print('color', apds9960.color_data)
 except Exception as e:
@@ -150,6 +149,7 @@ if False:
 	try:
 		from adafruit_lis3mdl import LIS3MDL
 		lis3mdl = LIS3MDL(i2c)
+		print('magnetic', lis3mdl.magnetic)
 	except Exception as e:
 		print('\n'.join(traceback.format_exception(e)))
 
@@ -170,8 +170,8 @@ except RuntimeError:
 print('acceleration', lsm6ds.acceleration)
 print('gyro', lsm6ds.gyro)
 
-for d in usb_hid.devices: print('usb device ' + str(d.usage_page) + ' ' + str(d.usage))
-
+for d in usb_hid.devices:
+	print(f'usb device f{d.usage_page} {d.usage}')
 keyboard = usb_keyboard = Keyboard(usb_hid.devices)
 keyboard_layout = usb_keyboard_layout = KeyboardLayoutUS(usb_keyboard)
 consumer = usb_consumer = ConsumerControlWrapper(usb_hid.devices)
@@ -190,6 +190,9 @@ aux_lsm6ds = types.SimpleNamespace()
 aux_lsm6ds.gyro = (0.0, 0.0, 0.0)
 aux_lsm6ds.acceleration = (0.0, 0.0, 0.0)
 
+aux_lis3mdl = types.SimpleNamespace()
+aux_lis3mdl.magnetic = (0.0, 0.0, 0.0)
+
 try:
 	import _bleio
 	from adafruit_ble import BLERadio
@@ -203,7 +206,6 @@ try:
 	
 	ble_uart_service = UARTService()
 	SwitchEvent.source(ble_uart_service, 19)
-	
 	@tasks.create()
 	def ble_uart_receive_task(now):
 		# todo wait for aux to say the magic word before trusting anything else it says.
@@ -228,12 +230,11 @@ try:
 			aux_apds9960.color_data = color
 	
 	ble_hid = HIDService(DEFAULT_HID_DESCRIPTOR + Gamepad.DESCRIPTOR)
-	
 	@tasks.create(ms=1000)
 	def hid_mode_task(now):
-		global keyboard, keyboard_layout, mouse, gamepad, consumer, _hid_mode_tick
-		use_usb = (len([c for c in ble.connections if c.paired]) < 1)
-		#use_usb = supervisor.runtime.usb_connected
+		global keyboard, keyboard_layout, mouse, gamepad, consumer
+		use_usb = (len([c for c in ble.connections if c.paired]) < 1) # prefer ble_hid if available
+		#use_usb = supervisor.runtime.usb_connected # prefer usb_hid if available
 		if use_usb and keyboard != usb_keyboard:
 			keyboard = usb_keyboard
 			keyboard_layout = usb_keyboard_layout
