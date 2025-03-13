@@ -82,16 +82,17 @@ class ProximityPacket(Packet):
 ProximityPacket.register_packet_type()
 
 class FeatureFlagPacket(Packet):
-    _FMT_PARSE: str = '<xxssx'
-    PACKET_LENGTH: int = struct.calcsize(_FMT_PARSE)
-    # _FMT_CONSTRUCT doesn't include the trailing checksum byte.
-    _FMT_CONSTRUCT: str = '<2sss'
-    _TYPE_HEADER: bytes = b'!F'
-
+	_FMT_PARSE: str = '<xxssx'
+	PACKET_LENGTH: int = struct.calcsize(_FMT_PARSE)
+	# _FMT_CONSTRUCT doesn't include the trailing checksum byte.
+	_FMT_CONSTRUCT: str = '<2sss'
+	_TYPE_HEADER: bytes = b'!F'
+	
 	ACCELEROMETER = 'A'
-	GYRO = 'G'
-	MAGNETOMETER = 'M'
 	COLOR = 'C'
+	GYRO = 'G'
+	JOYSTICK = 'J'
+	MAGNETOMETER = 'M'
 	PROXIMITY = 'P'
 
 	def __init__(self, feature: str, enabled: bool):
