@@ -201,8 +201,33 @@ try:
 	ble = BLERadio()
 	ble.name = 'jot'
 	
+	ble_uart_service = UARTService()
+	SwitchEvent.source(ble_uart_service, 19)
+	
+	@tasks.create()
+	def ble_uart_receive_task(now):
+		# todo wait for aux to say the magic word before trusting anything else it says.
+		if not ble_uart_service.in_waiting:
+			return
+		packet = Packet.from_stream(ble_uart_service)
+		print('received', packet)
+		if isinstance(packet, ButtonPacket):
+			SwitchEvent.dispatch(packet.pressed, packet.index, ble_uart_service)
+		elif isinstance(packet, JoystickPacket):
+			aux_joystick.x = packet.x
+			aux_joystick.y = packet.y
+		elif isinstance(packet, ProximityPacket):
+			aux_apds9960.proximity = packet.proximity
+		elif isinstance(packet, GyroPacket):
+			aux_lsm6ds.gyro = packet.x, packet.y, packet.z
+		elif isinstance(packet, AccelerometerPacket):
+			aux_lsm6ds.acceleration = packet.x, packet.y, packet.z
+		elif isinstance(packet, MagnetometerPacket):
+			aux_lis3mdl.magnetic = packet.x, packet.y, packet.z
+		elif isinstance(packet, ColorPacket):
+			aux_apds9960.color_data = color
+	
 	ble_hid = HIDService(DEFAULT_HID_DESCRIPTOR + Gamepad.DESCRIPTOR)
-	for d in ble_hid.devices: print(f'ble device {d.usage_page} {d.usage}')
 	
 	@tasks.create(ms=1000)
 	def hid_mode_task(now):
@@ -217,6 +242,8 @@ try:
 			consumer = usb_consumer
 			print('using usb hid')
 		elif not use_usb and keyboard == usb_keyboard:
+			for d in ble_hid.devices:
+				print(f'ble device {d.usage_page} {d.usage}')
 			keyboard = Keyboard(ble_hid.devices)
 			keyboard_layout = KeyboardLayoutUS(keyboard)
 			consumer = ConsumerControlWrapper(ble_hid.devices)
@@ -244,32 +271,6 @@ try:
 			print(f'battery voltage={avg_v} percent={ble_battery_service.level}')
 			if red_led:
 				red_led.value = (ble_battery_service.level < 10)
-	
-	ble_uart_service = UARTService()
-	SwitchEvent.source(ble_uart_service, 19)
-	
-	@tasks.create()
-	def ble_uart_receive_task(now):
-		# todo wait for aux to say the magic word before trusting anything else it says.
-		if not ble_uart_service.in_waiting:
-			return
-		packet = Packet.from_stream(ble_uart_service)
-		print('received', packet)
-		if isinstance(packet, ButtonPacket):
-			SwitchEvent.dispatch(packet.pressed, packet.index, ble_uart_service)
-		elif isinstance(packet, JoystickPacket):
-			aux_joystick.x = packet.x
-			aux_joystick.y = packet.y
-		elif isinstance(packet, ProximityPacket):
-			aux_apds9960.proximity = packet.proximity
-		elif isinstance(packet, GyroPacket):
-			aux_lsm6ds.gyro = packet.x, packet.y, packet.z
-		elif isinstance(packet, AccelerometerPacket):
-			aux_lsm6ds.acceleration = packet.x, packet.y, packet.z
-		elif isinstance(packet, MagnetometerPacket):
-			aux_lis3mdl.magnetic = packet.x, packet.y, packet.z
-		elif isinstance(packet, ColorPacket):
-			aux_apds9960.color_data = color
 	
 	ble_device_info_service = DeviceInfoService(
 		software_revision='2025-03-03',
