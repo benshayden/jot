@@ -193,15 +193,12 @@ aux_lsm6ds.acceleration = (0.0, 0.0, 0.0)
 try:
 	import _bleio
 	from adafruit_ble import BLERadio
-	from adafruit_ble.advertising import Advertisement
-	from adafruit_ble.advertising.standard import ProvideServicesAdvertisement
 	from adafruit_ble.services.nordic import UARTService
 	from adafruit_ble.services.standard.hid import HIDService, DEFAULT_HID_DESCRIPTOR
 	from adafruit_ble.services.standard.device_info import DeviceInfoService
 	from adafruit_ble.services.standard import BatteryService
 	
 	ble = BLERadio()
-	ble.stop_advertising()
 	ble.name = 'jot'
 	
 	ble_hid = HIDService(DEFAULT_HID_DESCRIPTOR + Gamepad.DESCRIPTOR)
@@ -279,58 +276,12 @@ try:
 		manufacturer='bsh',
 		model_number=ble.name,
 	)
-	
-	# CircuitPython in aux cannot connect to large advertisements such as hid+uart,
-	# so advertise uart for aux separately from advertising hid.
-	ble_uart_advertisement = ProvideServicesAdvertisement(ble_uart_service)
-	ble_uart_advertisement.appearance = 960 # generic hid
-	ble_uart_advertisement.complete_name = ble.name
-	ble_hid_advertisement = ProvideServicesAdvertisement(ble_hid, ble_device_info_service, ble_battery_service)
-	ble_hid_advertisement.appearance = 961 # Keyboard
-	ble_hid_advertisement.complete_name = ble.name
 
-	_ble_advertising = None
-	_blue_led_tick = 0
-	@tasks.create()
-	def ble_advertise_task(now):
-		global _ble_advertising, _blue_led_tick
-		num_paired = 0
-		num_unpaired = 0
-		for c in ble.connections:
-			if c.paired:
-				num_paired += 1
-			else:
-				num_unpaired += 1
-		if num_paired > 1 or num_unpaired > 1:
-			for c in ble.connections:
-				c.disconnect()
-			return # wait for the next task loop
-		if num_unpaired < 1:
-			if _ble_advertising != ble_uart_advertisement:
-				ble.stop_advertising()
-				ble.start_advertising(ble_uart_advertisement)
-				_ble_advertising = ble_uart_advertisement
-				print('advertising uart from', hexlify(ble.address_bytes))
-			if blue_led and tasks.ticks_diff(now, _blue_led_tick) >= 250:
-				_blue_led_tick = now
-				blue_led.value = not blue_led.value
-		elif num_paired < 1:
-			if _ble_advertising != ble_hid_advertisement:
-				ble.stop_advertising()
-				ble.start_advertising(ble_hid_advertisement)
-				_ble_advertising = ble_hid_advertisement
-				print('advertising hid from', hexlify(ble.address_bytes))
-			if blue_led and tasks.ticks_diff(now, _blue_led_tick) >= 500:
-				_blue_led_tick = now
-				blue_led.value = not blue_led.value
-		else:
-			if _ble_advertising != None:
-				# done!
-				ble.stop_advertising()
-				_ble_advertising = None
-				if blue_led:
-					blue_led.value = True
-				print('stopped advertising')
+	from jot.two_blue import TwoBlue
+	two_blue = TwoBlue(
+		ble, blue_led,
+		unpaired_services=(ble_uart_service,), unpaired_appearance=960,
+		paired_services=(ble_hid, ble_device_info_service, ble_battery_service), paired_appearance=961)
 except Exception as e:
 	print('\n'.join(traceback.format_exception(e)))
 
