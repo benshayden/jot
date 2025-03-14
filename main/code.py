@@ -20,7 +20,6 @@ from jot.gamepad import Gamepad
 from jot.scripts import run_script, uncache_script, CommandLineInterface
 from jot.switch_event import SwitchEvent, PRESS, RELEASE
 from jot.joymouse import JoyMouse
-
 from adafruit_debouncer import Debouncer
 from adafruit_hid import find_device
 from adafruit_hid.consumer_control import ConsumerControl
@@ -30,26 +29,11 @@ from adafruit_hid.keyboard_layout_us import KeyboardLayoutUS
 from adafruit_hid.keycode import Keycode
 from adafruit_hid.mouse import Mouse
 
-SwitchEvent.run = lambda args: run_script(args, 'switches', globals())
-SwitchEvent.set_layer('default')
-
-class ConsumerControlWrapper(ConsumerControl):
-	def release(self, *unused):
-		super().release()
-
-def por(device, code):
-	# press or release
-	if SwitchEvent.current.pressed:
-		device.press(code)
-	else:
-		device.release(code)
-
 cli = CommandLineInterface('commands', globals())
-neopixel = neopixel.NeoPixel(board.NEOPIXEL, 1)
 A0 = AnalogIn(board.A0)
 A1 = AnalogIn(board.A1)
 joystick = JoyStick(A0, Interval(0.0, 32750.0), Interval(32780.0, 65535.0), A1, Interval(0.0, 32750.0), Interval(32780.0, 65535.0))
-
+neopixel = neopixel.NeoPixel(board.NEOPIXEL, 1)
 blue_led = DigitalOut(board.BLUE_LED) if hasattr(board, 'BLUE_LED') else None
 red_led = DigitalOut(board.RED_LED) if hasattr(board, 'RED_LED') else None
 switch = Debouncer(DigitalIn(board.SWITCH)) if hasattr(board, 'SWITCH') else None
@@ -74,6 +58,16 @@ SwitchEvent.source(key_matrix, key_matrix.key_count)
 def key_matrix_task(now):
 	if key_matrix.events.get_into(keypad_event):
 		SwitchEvent.dispatch(keypad_event.pressed, keypad_event.key_number, key_matrix)
+
+SwitchEvent.run = lambda args: run_script(args, 'switches', globals())
+SwitchEvent.set_layer('default')
+
+def por(device, code):
+	# press or release
+	if SwitchEvent.current.pressed:
+		device.press(code)
+	else:
+		device.release(code)
 
 tasks.create(ms=1000 * 60 * 10)(lambda now: SwitchEvent.flush_histogram())
 
@@ -127,6 +121,10 @@ except RuntimeError:
 	lsm6ds = LSM6DS(i2c)
 print('acceleration', lsm6ds.acceleration)
 print('gyro', lsm6ds.gyro)
+
+class ConsumerControlWrapper(ConsumerControl):
+	def release(self, *unused):
+		super().release()
 
 for d in usb_hid.devices:
 	print(f'usb device f{d.usage_page} {d.usage}')
