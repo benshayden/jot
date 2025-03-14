@@ -95,6 +95,8 @@ if False:
 	try:
 		from adafruit_bmp280 import Adafruit_BMP280_I2C
 		bmp280 = Adafruit_BMP280_I2C(i2c)
+		print(f'temperature {bmp280.temperature}C')
+		print(f'pressure {bmp280.pressure}hPa')
 	except Exception as e:
 		print('\n'.join(traceback.format_exception(e)))
 
@@ -112,6 +114,8 @@ if False:
 	try:
 		from adafruit_sht31d import SHT31D
 		sht31d = SHT31D(i2c)
+		print('temperature', sht31d.temperature)
+		print('humidity', sht31d.relative_humidity)
 	except Exception as e:
 		print('\n'.join(traceback.format_exception(e)))
 
