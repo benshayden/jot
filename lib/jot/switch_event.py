@@ -25,7 +25,31 @@ class SwitchEvent:
 	@staticmethod
 	def source(obj, count):
 		SwitchEvent._sources.append((id(obj), count))
+		
+	_keymap_cache = {}
+	@staticmethod
+	def get_layer(name):
+		if name in SwitchEvent._keymap_cache:
+			return SwitchEvent._keymap_cache[name]
+		filename = f'/layers/{name}.txt'
+		try:
+			SwitchEvent._keymap_cache[name] = [tuple(line.split(' ')) for line in open(filename).read().split('\n')]
+			return SwitchEvent._keymap_cache[name]
+		except Exception as e:
+			print(f'exception reading {filename}')
+			print('\n'.join(traceback.format_exception(e)))
+		return None
+
+	keymap = []
+	keymap_name = 'default'
 	
+	@staticmethod
+	def set_layer(name):
+		km = SwitchEvent.get_layer(name)
+		if km:
+			SwitchEvent.keymap_name = name
+			SwitchEvent.keymap = km
+
 	_queue = []
 	
 	@staticmethod
