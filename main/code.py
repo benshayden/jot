@@ -84,7 +84,7 @@ joymouse.task.enabled = False # todo remove
 blue_led = DigitalOut(board.BLUE_LED) if hasattr(board, 'BLUE_LED') else None
 red_led = DigitalOut(board.RED_LED) if hasattr(board, 'RED_LED') else None
 switch = Debouncer(DigitalIn(board.SWITCH)) if hasattr(board, 'SWITCH') else None
-SwitchEvent.source(switch, 1)
+if switch: SwitchEvent.source(switch, 1)
 
 keypad_event = keypad.Event()
 key_matrix = keypad.KeyMatrix(
@@ -98,13 +98,10 @@ SwitchEvent.source(key_matrix, key_matrix.key_count)
 set_layer('default')
 @tasks.create()
 def switch_event_task(now):
-	SwitchEvent.current = None
-	switch.update()
-	if switch.rose or switch.fell:
-		SwitchEvent.dispatch(switch.fell, 0, switch)
-		# SwitchEvent.dispatch sets SwitchEvent.current. Let other tasks observe SwitchEvent.current in this task loop.
-		# If there's also an event in key_matrix's queue, it can stay there until next task loop.
-		return
+	if switch:
+		switch.update()
+		if switch.rose or switch.fell:
+			SwitchEvent.dispatch(switch.fell, 0, switch)
 	if key_matrix.events.get_into(keypad_event):
 		SwitchEvent.dispatch(keypad_event.pressed, keypad_event.key_number, key_matrix)
 
@@ -201,7 +198,6 @@ try:
 		packet = Packet.from_stream(ble_uart_service)
 		print('received', packet)
 		if isinstance(packet, ButtonPacket):
-			# todo if SwitchEvent.current then queue this packet for next task loop so other tasks can observe both current and this packet
 			SwitchEvent.dispatch(packet.pressed, packet.index, ble_uart_service)
 		elif isinstance(packet, JoystickPacket):
 			aux_joystick.x = packet.x
