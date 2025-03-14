@@ -19,6 +19,7 @@ from jot import RingBuffer, AccelerometerPacket, ButtonPacket, ColorPacket, Gyro
 from jot.gamepad import Gamepad
 from jot.scripts import run_script, uncache_script, CommandLineInterface
 from jot.switch_event import SwitchEvent, PRESS, RELEASE
+from jot.joymouse import JoyMouse
 
 from adafruit_debouncer import Debouncer
 from adafruit_hid import find_device
@@ -29,25 +30,8 @@ from adafruit_hid.keyboard_layout_us import KeyboardLayoutUS
 from adafruit_hid.keycode import Keycode
 from adafruit_hid.mouse import Mouse
 
-__keymap_cache = {}
-def get_layer(name):
-	if name in __keymap_cache:
-		return __keymap_cache[name]
-	filename = f'/layers/{name}.txt'
-	try:
-		__keymap_cache[name] = [tuple(line.split(' ')) for line in open(filename).read().split('\n')]
-		return __keymap_cache[name]
-	except Exception as e:
-		print(f'exception reading {filename}')
-		print('\n'.join(traceback.format_exception(e)))
-
-keymap_name = 'default'
-def set_layer(name):
-	global keymap_name
-	keymap_name = name
-	SwitchEvent.keymap = get_layer(name) or SwitchEvent.keymap
-
 SwitchEvent.run = lambda args: run_script(args, 'switches', globals())
+SwitchEvent.set_layer('default')
 
 class ConsumerControlWrapper(ConsumerControl):
 	def release(self, *unused):
@@ -60,35 +44,23 @@ def por(device, code):
 	else:
 		device.release(code)
 
-class JoyMouse:
-	def __init__(self, joystick, ms=50, speed=0.1):
-		self.joystick = joystick
-		self.speed = speed
-		self._x = 0.0
-		self._y = 0.0
-		self.task = tasks.create(ms=ms)(self.loop)
-	
-	def loop(self, now):
-		dx, self._x = self._buf(self._x + self.joystick.x)
-		dy, self._y = self._buf(self._y + self.joystick.y)
-		mouse.move(dx, dy)
-	
-	def _buf(self, n):
-		whole, frac = divmod(self.speed * n * 127.0, 1.0)
-		return min(127, max(-127, int(whole))) & 0xff, (frac / 127.0) / self.speed
-
 cli = CommandLineInterface('commands', globals())
 neopixel = neopixel.NeoPixel(board.NEOPIXEL, 1)
 A0 = AnalogIn(board.A0)
 A1 = AnalogIn(board.A1)
 joystick = JoyStick(A0, Interval(0.0, 32750.0), Interval(32780.0, 65535.0), A1, Interval(0.0, 32750.0), Interval(32780.0, 65535.0))
-joymouse = JoyMouse(joystick)
-joymouse.task.enabled = False # todo remove
 
 blue_led = DigitalOut(board.BLUE_LED) if hasattr(board, 'BLUE_LED') else None
 red_led = DigitalOut(board.RED_LED) if hasattr(board, 'RED_LED') else None
 switch = Debouncer(DigitalIn(board.SWITCH)) if hasattr(board, 'SWITCH') else None
-if switch: SwitchEvent.source(switch, 1)
+if switch:
+	SwitchEvent.source(switch, 1)
+@tasks.create()
+def switch_event_task(now):
+	if switch:
+		switch.update()
+		if switch.rose or switch.fell:
+			SwitchEvent.dispatch(switch.fell, 0, switch)
 
 keypad_event = keypad.Event()
 key_matrix = keypad.KeyMatrix(
@@ -98,14 +70,8 @@ key_matrix = keypad.KeyMatrix(
 	debounce_threshold=2,
 )
 SwitchEvent.source(key_matrix, key_matrix.key_count)
-
-set_layer('default')
 @tasks.create()
-def switch_event_task(now):
-	if switch:
-		switch.update()
-		if switch.rose or switch.fell:
-			SwitchEvent.dispatch(switch.fell, 0, switch)
+def key_matrix_task(now):
 	if key_matrix.events.get_into(keypad_event):
 		SwitchEvent.dispatch(keypad_event.pressed, keypad_event.key_number, key_matrix)
 
@@ -165,6 +131,9 @@ keyboard_layout = usb_keyboard_layout = KeyboardLayoutUS(usb_keyboard)
 consumer = usb_consumer = ConsumerControlWrapper(usb_hid.devices)
 mouse = usb_mouse = Mouse(usb_hid.devices)
 gamepad = usb_gamepad = Gamepad(usb_hid.devices, *joysticks)
+
+joymouse = JoyMouse(joystick, lambda: mouse)
+joymouse.task.enabled = False # todo remove
 
 aux_joystick = types.SimpleNamespace()
 aux_joystick.x = aux_joystick.y = 0.0
