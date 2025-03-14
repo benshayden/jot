@@ -15,7 +15,11 @@ import types
 import usb_hid
 from analogio import AnalogIn
 from binascii import hexlify, unhexlify
-from jot import run_script, uncache_script, CommandLineInterface, Gamepad, RingBuffer, AccelerometerPacket, ButtonPacket, ColorPacket, GyroPacket, JoystickPacket, MagnetometerPacket, Packet, ProximityPacket, Interval, JoyStick, SwitchEvent, PRESS, RELEASE, tasks, DigitalIn, DigitalOut
+from jot import RingBuffer, AccelerometerPacket, ButtonPacket, ColorPacket, GyroPacket, JoystickPacket, MagnetometerPacket, Packet, ProximityPacket, Interval, JoyStick, tasks, DigitalIn, DigitalOut
+from jot.gamepad import Gamepad
+from jot.scripts import run_script, uncache_script, CommandLineInterface
+from jot.switch_event import SwitchEvent, PRESS, RELEASE
+
 from adafruit_debouncer import Debouncer
 from adafruit_hid import find_device
 from adafruit_hid.consumer_control import ConsumerControl
