@@ -26,13 +26,23 @@ def ticks_diff(ticks1, ticks2):
 _tasks = []
 
 class Task:
-	def __init__(self, cb, ms):
+	def __init__(self, cb, ms, priority):
 		self.enabled = True
 		self._cb = cb
 		self.ms = ms
 		self._tick = 0
 		_tasks.append(self)
-
+		self.priority = priority
+	
+	@property
+	def priority(self):
+		return self._priority
+	
+	@priority.setter
+	def priority(self, p):
+		self._priority = p
+		_tasks.sort(key=lambda t:t._priority)
+	
 	def __call__(self, now):
 		if not self.enabled or ticks_diff(now, self._tick) < self.ms:
 			return
@@ -43,10 +53,8 @@ class Task:
 			print('\n'.join(traceback.format_exception(e)))
 			self.enabled = False
 
-def create(*, ms=0):
-	def deco(cb):
-		return Task(cb, ms)
-	return deco
+def create(*, ms=0, priority=0x80):
+	return lambda cb: Task(cb, ms, priority)
 
 running = False
 
