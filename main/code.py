@@ -1,27 +1,19 @@
 import board
-import collections
 import gc
 import keypad
-import math
 import microcontroller
 import neopixel
-import os
-import struct
 import supervisor
-import sys
-import time
 import traceback
 import types
 import usb_hid
 from analogio import AnalogIn
-from binascii import hexlify, unhexlify
 from jot import RingBuffer, AccelerometerPacket, ButtonPacket, ColorPacket, GyroPacket, JoystickPacket, MagnetometerPacket, Packet, ProximityPacket, Interval, JoyStick, tasks, DigitalIn, DigitalOut
 from jot.gamepad import Gamepad
 from jot.scripts import run_script, uncache_script, CommandLineInterface
 from jot.switch_event import SwitchEvent, PRESS, RELEASE
 from jot.joymouse import JoyMouse
 from adafruit_debouncer import Debouncer
-from adafruit_hid import find_device
 from adafruit_hid.consumer_control import ConsumerControl
 from adafruit_hid.consumer_control_code import ConsumerControlCode
 from adafruit_hid.keyboard import Keyboard
