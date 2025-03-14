@@ -1,9 +1,14 @@
 import supervisor
 from . import RingBuffer
+from . import tasks
 
 class SwitchEvent:
 	current = None
-	sources = []
+
+	@tasks.create()
+	@staticmethod
+	def _clear_current(now):
+		SwitchEvent.current = None
 	
 	def __init__(self, pressed=False, timestamp=0, key_number=0, args=(), source=None):
 		self.pressed = pressed
@@ -15,19 +20,31 @@ class SwitchEvent:
 	def __repr__(self):
 		return f'SwitchEvent({self.pressed}, {self.timestamp}, {self.key_number}, {self.args}, {self.source})'
 	
+	_sources = []
+	
 	@staticmethod
 	def source(obj, count):
-		SwitchEvent.sources.append((id(obj), count))
-
+		SwitchEvent._sources.append((id(obj), count))
+	
+	_queue = []
+	
 	@staticmethod
 	def dispatch(press, index, source):
-		for srcid, count in SwitchEvent.sources:
+		if SwitchEvent.current:
+			# Let other tasks observe SwitchEvent.current in this task loop.
+			# Wait for the next task loop for _process_task to dispatch this.
+			# An alternative approach could always queue new events and let _process_queue actually dispatch them in the next task loop,
+			# but that would either create more garbage or require a RingBufferQueue.
+			# Carefully prioritizing tasks is necessary either way.
+			SwitchEvent._queue.append((press, index, source))
+			return
+		for srcid, count in SwitchEvent._sources:
 			if srcid != id(source):
 				index += count
 		if index < 0 or index > len(SwitchEvent.keymap):
 			print(f'invalid switch {index}')
 			return
-		SwitchEvent.current = SwitchEvent.instance
+		SwitchEvent.current = SwitchEvent._instance
 		SwitchEvent.current.key_number = index
 		SwitchEvent.current.source = source
 		SwitchEvent.current.pressed = press
@@ -42,6 +59,12 @@ class SwitchEvent:
 			SwitchEvent.pressed_args.remove(SwitchEvent.current.args)
 		SwitchEvent.run(SwitchEvent.current.args)
 		SwitchEvent.log(SwitchEvent.current)
+	
+	@tasks.create()
+	@staticmethod
+	def _process_queue(now):
+		if SwitchEvent._queue:
+			SwitchEvent.dispatch(*SwitchEvent._queue.pop(0))
 	
 	class Log(RingBuffer):
 		def __init__(self, capacity=30):
@@ -68,7 +91,7 @@ class SwitchEvent:
 				f.write(f'{n},{' '.join(s)}\n')
 		SwitchEvent.histogram_count = 0
 
-SwitchEvent.instance = SwitchEvent()
+SwitchEvent._instance = SwitchEvent()
 SwitchEvent.log = SwitchEvent.Log()
 PRESS = SwitchEvent(True)
 RELEASE = SwitchEvent(False)
