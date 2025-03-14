@@ -14,9 +14,8 @@ import traceback
 import types
 import usb_hid
 from analogio import AnalogIn
-import digitalio
 from binascii import hexlify, unhexlify
-from jot import run_script, uncache_script, CommandLineInterface, Gamepad, RingBuffer, AccelerometerPacket, ButtonPacket, ColorPacket, GyroPacket, JoystickPacket, MagnetometerPacket, Packet, ProximityPacket, Interval, JoyStick, SwitchEvent, PRESS, RELEASE, tasks
+from jot import run_script, uncache_script, CommandLineInterface, Gamepad, RingBuffer, AccelerometerPacket, ButtonPacket, ColorPacket, GyroPacket, JoystickPacket, MagnetometerPacket, Packet, ProximityPacket, Interval, JoyStick, SwitchEvent, PRESS, RELEASE, tasks, DigitalIn, DigitalOut
 from adafruit_debouncer import Debouncer
 from adafruit_hid import find_device
 from adafruit_hid.consumer_control import ConsumerControl
@@ -82,21 +81,9 @@ joystick = JoyStick(A0, Interval(0.0, 32750.0), Interval(32780.0, 65535.0), A1, 
 joymouse = JoyMouse(joystick)
 joymouse.task.enabled = False # todo remove
 
-if hasattr(board, 'BLUE_LED'):
-	blue_led = digitalio.DigitalInOut(board.BLUE_LED)
-	blue_led.direction = digitalio.Direction.OUTPUT
-else:
-	blue_led = None
-if hasattr(board, 'RED_LED'):
-	red_led = digitalio.DigitalInOut(board.RED_LED)
-	red_led.direction = digitalio.Direction.OUTPUT
-else:
-	red_led = None
-
-_switch = digitalio.DigitalInOut(board.SWITCH)
-_switch.direction = digitalio.Direction.INPUT
-_switch.pull = digitalio.Pull.UP
-switch = Debouncer(_switch)
+blue_led = DigitalOut(board.BLUE_LED) if hasattr(board, 'BLUE_LED') else None
+red_led = DigitalOut(board.RED_LED) if hasattr(board, 'RED_LED') else None
+switch = Debouncer(DigitalIn(board.SWITCH)) if hasattr(board, 'SWITCH') else None
 SwitchEvent.source(switch, 1)
 
 keypad_event = keypad.Event()
