@@ -129,15 +129,14 @@ aux_lsm6ds.acceleration = (0.0, 0.0, 0.0)
 aux_lis3mdl = types.SimpleNamespace()
 aux_lis3mdl.magnetic = (0.0, 0.0, 0.0)
 
-class ConsumerControlWrapper(ConsumerControl):
-	def release(self, *unused):
-		super().release()
+ConsumerControl._release = ConsumerControl.release
+ConsumerControl.release = lambda self, *unused: self._release()
 
 for d in usb_hid.devices:
 	print(f'usb device f{d.usage_page} {d.usage}')
 keyboard = usb_keyboard = Keyboard(usb_hid.devices)
 keyboard_layout = usb_keyboard_layout = KeyboardLayoutUS(usb_keyboard)
-consumer = usb_consumer = ConsumerControlWrapper(usb_hid.devices)
+consumer = usb_consumer = ConsumerControl(usb_hid.devices)
 mouse = usb_mouse = Mouse(usb_hid.devices)
 gamepad = usb_gamepad = Gamepad(usb_hid.devices, *joysticks)
 
